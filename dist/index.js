@@ -31031,7 +31031,7 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3597);
 /* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(1738);
 /* harmony import */ var _collect_client_js__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(8935);
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(8666);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(7406);
 
 
 
@@ -31055,7 +31055,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 8666:
+/***/ 7406:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -31103,6 +31103,19 @@ const MIN_PRS_PER_GROUP_FOR_COMPARISON = 5;
 const MIN_CONTRIBUTORS_FOR_SHARES = 3;
 /** Fewer human contributors than this: required reviews are not applicable (one person can't approve their own PR). */
 const MIN_CONTRIBUTORS_FOR_REQUIRED_REVIEWS = 2;
+// Observations (not scored)
+/** The direct-push observation needs at least this many commits on the default branch in the window. */
+const MIN_COMMITS_FOR_DIRECT_PUSH_OBSERVATION = 10;
+/** ...and more than this share of them pushed without a PR. */
+const DIRECT_PUSH_OBSERVATION_SHARE = 0.5;
+/**
+ * Commits read for the observation by default, newest first; past this, the
+ * most recent ones are a sample. Not tied to max-prs. 300 keeps the run within
+ * FR-A11's 5 minutes: 1000 took over 5 minutes on microsoft/vscode.
+ */
+const MAX_COMMITS_FOR_OBSERVATION = 300;
+/** The largest value the max-commits input accepts. */
+const MAX_COMMITS_INPUT_LIMIT = 1000;
 /**
  * Lockfiles excluded whenever changed lines are counted (review depth, PR
  * hygiene), along with files GitHub marks as generated.
@@ -31186,8 +31199,12 @@ const MIN_DIMENSIONS_FOR_OVERALL = 4;
 // Report
 /** At most this many fixes are shown. */
 const TOP_FIXES = 3;
-/** Lookback suggested when dimensions lack data only because of the PR minimum. */
-const SUGGESTED_LOOKBACK_DAYS = 180;
+/**
+ * Lookback suggested when dimensions lack data only because of the PR minimum:
+ * the current value times this factor, and at least the minimum.
+ */
+const LOOKBACK_SUGGESTION_FACTOR = 2;
+const MIN_SUGGESTED_LOOKBACK_DAYS = 180;
 
 ;// CONCATENATED MODULE: ./src/scoring.ts
 
@@ -32565,6 +32582,162 @@ function overallLevel(dimensions) {
     return { level: bandPoints(average, OVERALL_LEVEL_BANDS), average, dimensionsWithData: scored.length };
 }
 
+;// CONCATENATED MODULE: ./src/collect/queries.ts
+// GraphQL queries for collect. No imports, so scripts/record-fixtures.mjs can
+// load this file directly with Node's type stripping.
+//
+// GraphQL rather than REST: one request returns a page of PRs with their
+// files, reviews and commits, so 300 PRs cost ~12 requests instead of ~1,200
+// against GITHUB_TOKEN's hourly limit (NFR-5).
+const PAGE_SIZE = 25;
+const NESTED_PAGE_SIZE = 100;
+const FILE_FIELDS = 'path additions deletions changeType';
+const REVIEW_FIELDS = 'author { login __typename } state submittedAt body comments { totalCount }';
+const COMMIT_FIELDS = 'commit { oid message }';
+const COMMENT_FIELDS = 'author { login __typename } createdAt';
+const MERGED_PULL_REQUESTS_QUERY = `
+query MergedPullRequests($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: MERGED, orderBy: { field: UPDATED_AT, direction: DESC }, first: $pageSize, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        url
+        createdAt
+        mergedAt
+        updatedAt
+        headRefName
+        body
+        additions
+        deletions
+        author { login __typename }
+        mergedBy { login }
+        labels(first: 50) { nodes { name } }
+        files(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${FILE_FIELDS} } }
+        reviews(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${REVIEW_FIELDS} } }
+        commits(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${COMMIT_FIELDS} } }
+        comments(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${COMMENT_FIELDS} } }
+      }
+    }
+  }
+}`;
+/** Follow-up pages for one PR's files, reviews, commits or conversation comments beyond the first 100. */
+function nestedPageQuery(connection) {
+    const fields = { files: FILE_FIELDS, reviews: REVIEW_FIELDS, commits: COMMIT_FIELDS, comments: COMMENT_FIELDS }[connection];
+    const name = `PullRequest${connection[0]?.toUpperCase()}${connection.slice(1)}`;
+    return `
+query ${name}($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      ${connection}(first: ${NESTED_PAGE_SIZE}, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${fields} }
+      }
+    }
+  }
+}`;
+}
+/**
+ * Reads up to `count` files in one request: variables $p0..$p{count-1} hold
+ * "branch:path" expressions, and each result comes back under alias f{i}.
+ */
+function configFilesQuery(count) {
+    const indexes = Array.from({ length: count }, (_, i) => i);
+    const params = indexes.map((i) => `$p${i}: String!`).join(', ');
+    const fields = indexes
+        .map((i) => `    f${i}: object(expression: $p${i}) { ... on Blob { text isBinary } }`)
+        .join('\n');
+    return `
+query ConfigFiles($owner: String!, $name: String!, ${params}) {
+  repository(owner: $owner, name: $name) {
+${fields}
+  }
+}`;
+}
+/** Files per ConfigFiles request. */
+const CONFIG_FILES_PER_QUERY = 50;
+/** Whether the default branch has any commit before the window (one commit at most). */
+const HISTORY_BEFORE_WINDOW_QUERY = `
+query HistoryBeforeWindow($owner: String!, $name: String!, $until: GitTimestamp!) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef {
+      target { ... on Commit { history(first: 1, until: $until) { nodes { committedDate } } } }
+    }
+  }
+}`;
+/**
+ * Commits per DefaultBranchCommits page. Looking up associated PRs is slow:
+ * pages of 100 time out (HTTP 502) on busy repositories, 25 take about 4s.
+ */
+const COMMITS_PAGE_SIZE = 25;
+/**
+ * Commits on the default branch in the window: only whether each has a merged
+ * PR associated with it. No SHAs, messages or authors are requested.
+ */
+const DEFAULT_BRANCH_COMMITS_QUERY = `
+query DefaultBranchCommits($owner: String!, $name: String!, $since: GitTimestamp!, $until: GitTimestamp!, $pageSize: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef {
+      target {
+        ... on Commit {
+          history(first: $pageSize, since: $since, until: $until, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes { associatedPullRequests(first: 10) { nodes { merged } } }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+;// CONCATENATED MODULE: ./src/collect/commits.ts
+
+/**
+ * Counts commits on the default branch in the window, and how many arrived
+ * through a merged PR, for the unscored direct-push observation. History comes
+ * newest first, so past `maxCommits` the counts cover the most recent ones and
+ * are marked sampled. Unavailable, never failing the run, when the API fails
+ * (e.g. rate limits).
+ */
+async function collectDefaultBranchCommits(graphql, { owner, name, since, until, maxCommits }) {
+    let commits = 0;
+    let viaPullRequest = 0;
+    let cursor = null;
+    let sampled = false;
+    try {
+        for (;;) {
+            const data = await graphql(DEFAULT_BRANCH_COMMITS_QUERY, {
+                owner,
+                name,
+                since: since.toISOString(),
+                until: until.toISOString(),
+                pageSize: COMMITS_PAGE_SIZE,
+                cursor,
+            });
+            const history = data.repository?.defaultBranchRef?.target.history;
+            if (!history)
+                break;
+            const room = maxCommits - commits;
+            for (const node of history.nodes.slice(0, room)) {
+                commits += 1;
+                if (node.associatedPullRequests.nodes.some((pr) => pr.merged))
+                    viaPullRequest += 1;
+            }
+            if (commits >= maxCommits && (history.nodes.length > room || history.pageInfo.hasNextPage)) {
+                sampled = true;
+                break;
+            }
+            if (!history.pageInfo.hasNextPage)
+                break;
+            cursor = history.pageInfo.endCursor;
+        }
+    }
+    catch {
+        return { available: false, reason: 'Could not read commits on the default branch.' };
+    }
+    return { available: true, value: { commits, viaPullRequest, direct: commits - viaPullRequest, sampled } };
+}
+
 ;// CONCATENATED MODULE: ./src/collect/dependencies.ts
 // New dependencies added by each PR, for the safety gates finding that lists
 // them for manual review (docs/scoring-rubric.md). The Action may call only
@@ -32711,6 +32884,26 @@ function parserFor(manifest) {
     return requirementsTxt;
 }
 
+;// CONCATENATED MODULE: ./src/collect/history.ts
+
+/**
+ * True when no commit on the default branch is older than `since`, so a longer
+ * lookback would find nothing more. Never fails the run: on any error it
+ * returns false, and the report keeps suggesting a longer lookback.
+ */
+async function collectCoversFullHistory(graphql, { owner, name, since }) {
+    try {
+        const data = await graphql(HISTORY_BEFORE_WINDOW_QUERY, { owner, name, until: since.toISOString() });
+        const branch = data.repository?.defaultBranchRef;
+        if (!branch)
+            return true;
+        return (branch.target.history?.nodes.length ?? 0) === 0;
+    }
+    catch {
+        return false;
+    }
+}
+
 ;// CONCATENATED MODULE: ./src/collect/pseudonyms.ts
 /**
  * Replaces GitHub logins with opaque per-run ids ("contributor-1", ...) as
@@ -32729,81 +32922,6 @@ class Pseudonyms {
         return id;
     }
 }
-
-;// CONCATENATED MODULE: ./src/collect/queries.ts
-// GraphQL queries for collect. No imports, so scripts/record-fixtures.mjs can
-// load this file directly with Node's type stripping.
-//
-// GraphQL rather than REST: one request returns a page of PRs with their
-// files, reviews and commits, so 300 PRs cost ~12 requests instead of ~1,200
-// against GITHUB_TOKEN's hourly limit (NFR-5).
-const PAGE_SIZE = 25;
-const NESTED_PAGE_SIZE = 100;
-const FILE_FIELDS = 'path additions deletions changeType';
-const REVIEW_FIELDS = 'author { login __typename } state submittedAt body comments { totalCount }';
-const COMMIT_FIELDS = 'commit { oid message }';
-const COMMENT_FIELDS = 'author { login __typename } createdAt';
-const MERGED_PULL_REQUESTS_QUERY = `
-query MergedPullRequests($owner: String!, $name: String!, $pageSize: Int!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequests(states: MERGED, orderBy: { field: UPDATED_AT, direction: DESC }, first: $pageSize, after: $cursor) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        number
-        url
-        createdAt
-        mergedAt
-        updatedAt
-        headRefName
-        body
-        additions
-        deletions
-        author { login __typename }
-        mergedBy { login }
-        labels(first: 50) { nodes { name } }
-        files(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${FILE_FIELDS} } }
-        reviews(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${REVIEW_FIELDS} } }
-        commits(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${COMMIT_FIELDS} } }
-        comments(first: ${NESTED_PAGE_SIZE}) { pageInfo { hasNextPage endCursor } nodes { ${COMMENT_FIELDS} } }
-      }
-    }
-  }
-}`;
-/** Follow-up pages for one PR's files, reviews, commits or conversation comments beyond the first 100. */
-function nestedPageQuery(connection) {
-    const fields = { files: FILE_FIELDS, reviews: REVIEW_FIELDS, commits: COMMIT_FIELDS, comments: COMMENT_FIELDS }[connection];
-    const name = `PullRequest${connection[0]?.toUpperCase()}${connection.slice(1)}`;
-    return `
-query ${name}($owner: String!, $name: String!, $number: Int!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      ${connection}(first: ${NESTED_PAGE_SIZE}, after: $cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes { ${fields} }
-      }
-    }
-  }
-}`;
-}
-/**
- * Reads up to `count` files in one request: variables $p0..$p{count-1} hold
- * "branch:path" expressions, and each result comes back under alias f{i}.
- */
-function configFilesQuery(count) {
-    const indexes = Array.from({ length: count }, (_, i) => i);
-    const params = indexes.map((i) => `$p${i}: String!`).join(', ');
-    const fields = indexes
-        .map((i) => `    f${i}: object(expression: $p${i}) { ... on Blob { text isBinary } }`)
-        .join('\n');
-    return `
-query ConfigFiles($owner: String!, $name: String!, ${params}) {
-  repository(owner: $owner, name: $name) {
-${fields}
-  }
-}`;
-}
-/** Files per ConfigFiles request. */
-const CONFIG_FILES_PER_QUERY = 50;
 
 ;// CONCATENATED MODULE: ./src/collect/trailers.ts
 const CO_AUTHOR_TRAILER = /^co-authored-by:\s*(.+?)\s*$/gim;
@@ -33096,6 +33214,9 @@ async function readSecretScanning(info, repo, adminClient) {
 
 
 
+
+
+
 /** Everything the checks need, read once from the GitHub API. */
 async function collect(client, options) {
     const since = lookbackStart(options.now, options.lookbackDays);
@@ -33104,6 +33225,13 @@ async function collect(client, options) {
     const collected = await collectPullRequests(client.graphql, { ...repo, since, maxPrs: options.maxPrs }, new Pseudonyms());
     const pullRequests = await collectDependencyAdditions(client, repo, collected.pullRequests);
     const { truncated } = collected;
+    const coversFullHistory = await collectCoversFullHistory(client.graphql, { ...repo, since });
+    const defaultBranchCommits = await collectDefaultBranchCommits(client.graphql, {
+        ...repo,
+        since,
+        until: options.now,
+        maxCommits: options.maxCommits ?? MAX_COMMITS_FOR_OBSERVATION,
+    });
     return {
         repository,
         window: {
@@ -33112,13 +33240,16 @@ async function collect(client, options) {
             lookbackDays: options.lookbackDays,
             maxPrs: options.maxPrs,
             truncated,
+            coversFullHistory,
         },
         pullRequests,
         config,
+        defaultBranchCommits,
     };
 }
 
 ;// CONCATENATED MODULE: ./src/inputs.ts
+
 const DEFAULT_LOOKBACK_DAYS = 90;
 const DEFAULT_MAX_PRS = 300;
 const DEFAULT_OUTPUT_DIR = 'ai-practice-report';
@@ -33129,10 +33260,13 @@ function parseInputs(getInput) {
         throw new Error('Input "github-token" is required.');
     }
     const adminToken = getInput('admin-token').trim();
+    const warnings = [];
     return {
         githubToken,
         lookbackDays: positiveInt(getInput('lookback-days'), 'lookback-days', DEFAULT_LOOKBACK_DAYS),
         maxPrs: positiveInt(getInput('max-prs'), 'max-prs', DEFAULT_MAX_PRS),
+        maxCommits: maxCommitsInput(getInput('max-commits'), warnings),
+        warnings,
         ...(adminToken ? { adminToken } : {}),
         outputDir: getInput('output-dir').trim() || DEFAULT_OUTPUT_DIR,
         showCta: booleanInput(getInput('show-cta'), 'show-cta', true),
@@ -33150,6 +33284,16 @@ function positiveInt(raw, name, fallback) {
         throw new Error(`Input "${name}" must be a positive integer, got "${raw}".`);
     }
     return value;
+}
+/** Never fails the run: an invalid value falls back to the default with a warning. */
+function maxCommitsInput(raw, warnings) {
+    if (raw.trim() === '')
+        return MAX_COMMITS_FOR_OBSERVATION;
+    const value = Number(raw);
+    if (Number.isInteger(value) && value >= 1 && value <= MAX_COMMITS_INPUT_LIMIT)
+        return value;
+    warnings.push(`Input "max-commits" must be a whole number from 1 to ${MAX_COMMITS_INPUT_LIMIT}, got "${raw}"; using ${MAX_COMMITS_FOR_OBSERVATION}.`);
+    return MAX_COMMITS_FOR_OBSERVATION;
 }
 function booleanInput(raw, name, fallback) {
     const value = raw.trim().toLowerCase();
@@ -33478,7 +33622,7 @@ const NOT_ENOUGH_PRS = 'Not enough PRs in window:';
  * A note naming the dimensions that lack data only because of the PR minimum:
  * every criterion they excluded was excluded for "Not enough PRs in window".
  */
-function prMinimumNote(dimensions, lookbackDays) {
+function prMinimumNote(dimensions, lookbackDays, coversFullHistory) {
     const names = dimensions
         .filter((dimension) => !isScored(dimension))
         .filter((dimension) => {
@@ -33489,8 +33633,12 @@ function prMinimumNote(dimensions, lookbackDays) {
     if (!names.length)
         return undefined;
     const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-    return (`Not enough PRs in the last ${lookbackDays} days to score ${list}. ` +
-        `Re-run with a larger lookback-days (for example ${SUGGESTED_LOOKBACK_DAYS}) for a fuller report.`);
+    const shortfall = `Not enough PRs in the last ${lookbackDays} days to score ${list}. `;
+    if (coversFullHistory) {
+        return `${shortfall}The window already covers this repository's full history; there aren't enough pull requests to score these areas yet.`;
+    }
+    const suggested = Math.max(lookbackDays * LOOKBACK_SUGGESTION_FACTOR, MIN_SUGGESTED_LOOKBACK_DAYS);
+    return `${shortfall}Re-run with a larger lookback-days (for example ${suggested}) for a fuller report.`;
 }
 
 ;// CONCATENATED MODULE: ./src/markdown.ts
@@ -33508,8 +33656,23 @@ function escapeMarkdown(text) {
         .join('');
 }
 
+;// CONCATENATED MODULE: ./src/observations.ts
+
+// Observations (docs/scoring-rubric.md): shown above Top fixes, never scored.
+/** When most commits on the default branch bypass PRs, the PR-based checks see only part of the work. */
+function directPushObservation(data) {
+    if (!data.defaultBranchCommits.available)
+        return undefined;
+    const { commits, direct, sampled } = data.defaultBranchCommits.value;
+    if (commits < MIN_COMMITS_FOR_DIRECT_PUSH_OBSERVATION || direct / commits <= DIRECT_PUSH_OBSERVATION_SHARE)
+        return undefined;
+    return (`${direct} of ${sampled ? 'the most recent ' : ''}${commits} commits on ${data.repository.defaultBranch} ` +
+        `(${Math.round((direct / commits) * PERCENT)}%) ` +
+        'were pushed directly, without a pull request. Reviews, CI gates and AI-use records only cover changes that go through PRs.');
+}
+
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.1"};
+const package_namespaceObject = {"rE":"0.1.2"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */
@@ -33545,10 +33708,16 @@ function buildScoreFile(data, dimensions, overallLevel, generatedAt, actionVersi
                 }
                 : { dimension: dimension.dimension, status: dimension.status, criteria };
         }),
+        observations: {
+            directPushes: data.defaultBranchCommits.available
+                ? { ...data.defaultBranchCommits.value, sampleSize: data.defaultBranchCommits.value.commits }
+                : null,
+        },
     };
 }
 
 ;// CONCATENATED MODULE: ./src/report.ts
+
 
 
 
@@ -33567,14 +33736,16 @@ function buildReport(input) {
     const { data, dimensions, overall, generatedAt, showCta } = input;
     const actionVersion = input.actionVersion ?? ACTION_VERSION;
     const fixes = rankFixes(dimensions);
-    const notes = [prMinimumNote(dimensions, data.window.lookbackDays)].filter((note) => note !== undefined);
+    const notes = [prMinimumNote(dimensions, data.window.lookbackDays, data.window.coversFullHistory)].filter((note) => note !== undefined);
     const unreadable = adminTokenNoteNeeded(dimensions);
     const summary = summaryLine(data, overall, generatedAt);
+    const observations = [directPushObservation(data)].filter((text) => text !== undefined);
     const markdown = [
         `# ${REPORT_TITLE}`,
         summary,
         '## Dimensions',
         dimensionsTable(dimensions),
+        ...(observations.length ? ['## Observations', observations.join('\n\n')] : []),
         '## Top fixes',
         fixesSection(fixes, notes),
         '## Details',
@@ -33694,12 +33865,15 @@ async function run(deps) {
         deps.setSecret(inputs.githubToken);
         if (inputs.adminToken)
             deps.setSecret(inputs.adminToken);
+        for (const warning of inputs.warnings)
+            deps.warning(warning);
         const data = await collect(deps.createClient(inputs.githubToken), {
             owner: deps.repository.owner,
             name: deps.repository.name,
             now: deps.now,
             lookbackDays: inputs.lookbackDays,
             maxPrs: inputs.maxPrs,
+            maxCommits: inputs.maxCommits,
             ...(inputs.adminToken ? { adminClient: deps.createClient(inputs.adminToken) } : {}),
         });
         const dimensions = runChecks(data, { excludePaths: inputs.excludePaths });

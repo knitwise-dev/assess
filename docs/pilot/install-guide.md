@@ -65,8 +65,9 @@ Add any of these under `with:`.
 
 | Input | What it does |
 |---|---|
-| `lookback-days` | How many days of merged PRs to look at. Default 90. Use 180 if the report says there weren't enough PRs. |
+| `lookback-days` | How many days of merged PRs to look at. Default 90. If the report says there weren't enough PRs, use the larger value it suggests; if it says the window already covers the full history, a longer one won't help. |
 | `max-prs` | The most PRs to analyse. Default 300. |
+| `max-commits` | How many recent commits on the default branch to check for direct pushes. Default 300, at most 1000. A larger sample adds about 4 seconds per 25 commits on busy repositories. |
 | `exclude-paths` | Extra paths to leave out of PR size, comma-separated, for example `docs/**,*.csv`. Lockfiles, generated files and test data are already left out. |
 | `show-cta` | Set to `false` to leave the "What's next" offer out of the report. |
 | `admin-token` | Lets the Action read two settings the default token can't see. Not required. See [security-faq.md](security-faq.md). |

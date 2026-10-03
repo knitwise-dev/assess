@@ -2,6 +2,14 @@
 
 All notable changes to the Knitwise Assess Action (`knitwise-dev/assess`). Versions follow [semantic versioning](https://semver.org); the major tag (`v0`) always points at the latest release in that series.
 
+## 0.1.2
+
+Pilot feedback on 0.1.1. Still scored with **rubric v0.2**: scores are unchanged and comparable with 0.1.1.
+
+- **Lookback-days note fixed:** the "not enough PRs" note suggests double the current `lookback-days` (at least 180), instead of always 180. When the window already reaches back before the repository's first commit, it says the window covers the full history and suggests nothing larger.
+- **New unscored observation, direct pushes:** when at least 10 commits on the default branch are in the window and more than half arrived without a pull request, the report says so above Top fixes ("{direct} of {total} commits on {branch} ({pct}%) were pushed directly, without a pull request…"). `score.json` records the counts under `observations`. Only counts are read: no commit IDs, messages or authors. It never affects a score, and it's left out if the commits can't be read.
+- **New optional input `max-commits`** (default 300, at most 1000): how many of the most recent default-branch commits the observation reads. Past it, the wording says "of the most recent {n} commits" and `score.json` marks the counts `sampled`. Invalid values fall back to 300 with a warning. Commits are read 25 per page, because larger pages time out on busy repositories.
+
 ## 0.1.1
 
 Fixes from the first pilot run. Scored with **rubric v0.2**: scores from 0.1.0 (rubric v0.1) shouldn't be compared directly; see "Changes" in `docs/scoring-rubric.md`.

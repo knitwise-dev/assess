@@ -39,6 +39,7 @@ The upload step is optional: the report always appears in the run's job summary.
 | `github-token` | `${{ github.token }}` | Read-only token for the repository. Needs `contents: read` and `pull-requests: read`. |
 | `lookback-days` | `90` | How many days of merged PRs to analyse. |
 | `max-prs` | `300` | Upper bound on PRs analysed. |
+| `max-commits` | `300` | **Optional.** Most recent default-branch commits read for the direct-push observation, 1 to 1000. Invalid values fall back to 300 with a warning. |
 | `admin-token` | unset | **Optional.** See below. |
 | `output-dir` | `ai-practice-report` | Where `report.md` and `score.json` are written, relative to the workspace. |
 | `show-cta` | `true` | Set to `false` to leave the "What's next" section out of the report. |
@@ -62,7 +63,7 @@ For the person approving this Action:
 - **What it reads but never keeps.** Configuration files (such as `CLAUDE.md`, workflows and `package.json`) and the dependency lines of changed manifests are read on your runner to score them. They are not copied into the report or `score.json`.
 - **What it never collects.** Source code beyond those configuration files, diffs other than dependency manifests, commit message text (only `Co-authored-by` lines are kept), review and comment text, and developer names or logins. Logins are replaced with anonymous ids as they are read.
 - **No individuals.** Reports aggregate to team and repository level. No one is named, ranked or scored. The report shows the repository name. For repos under a personal account, this includes your account name.
-- **`score.json`** holds scores, points and criterion statuses only. It is the only file we would ever ask you to share.
+- **`score.json`** holds scores, points and criterion statuses only, plus unscored commit counts (total, via PRs, pushed directly). It is the only file we would ever ask you to share.
 - **Best-effort AI detection.** AI-assisted PRs are detected from co-author trailers, agent branch names, agent bots, labels and PR descriptions. Agent use that leaves none of these is not detected, and the report says so.
 
 ## Optional: `admin-token`

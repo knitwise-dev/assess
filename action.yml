@@ -10,6 +10,10 @@ inputs:
   max-prs:
     description: Upper bound on PRs analysed.
     default: '300'
+  max-commits:
+    description: Most recent default-branch commits read for the direct-push observation (1 to 1000).
+    required: false
+    default: '300'
   admin-token:
     description: >-
       Optional. A token with read access to repository administration, used only

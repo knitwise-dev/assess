@@ -153,6 +153,14 @@ How these are read:
 - **Active contributors** are the people who authored merged PRs in the window. Bots are not contributors, so a PR opened by an agent's bot credits no one.
 - PRs opened by automation bots (Dependabot, Renovate) are left out of the recorded share.
 
+## Observations (not scored)
+
+Observations appear above Top fixes. **They never affect any score or the overall level**, and adding them didn't change the rubric version.
+
+- **Direct pushes:** the Action counts commits on the default branch in the lookback window, and how many have a merged pull request. With at least **10** commits and **more than 50%** pushed without a pull request, the report says: "{direct} of {total} commits on {branch} ({pct}%) were pushed directly, without a pull request. Reviews, CI gates and AI-use records only cover changes that go through PRs." The **300** most recent commits are read by default (the optional `max-commits` input allows up to **1000**); with more in the window, the counts cover those and the wording becomes "{direct} of the most recent {n} commits on {branch} …". Only the counts are read (no commit IDs, messages or authors), and they appear in `score.json` under `observations`, with `sampled` and `sampleSize`. If the commits can't be read, the observation is left out and the run carries on.
+
+*Why:* the dimensions above only see pull requests. When most changes skip them, a good score or "insufficient data" says little about how the team really works.
+
 ## Top fixes
 
 The report lists up to **3** fixes, chosen from criteria that scored below their maximum in dimensions that have a score. Not-applicable and unknown criteria are never fixes, with one exception: for a single maintainer, "Require CI to pass before merging, and use a self-review checklist in your PR template" (effort S, critical) takes the place of required reviews (safety gates) and of the review-depth fix. It appears once, even when review depth has no score, and the separate required-status-checks fix is folded into it. They are ranked:

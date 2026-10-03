@@ -9,8 +9,10 @@ From the repository it runs in, through the GitHub API:
 - **Merged pull requests** from the lookback window (90 days by default): branch name, labels, description, size, the list of changed files with line counts, review states and times, and who commented when.
 - **Commits** in those PRs: only the `Co-authored-by` lines are kept, to detect AI agents.
 - **Configuration files:** `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, PR templates, workflow files, `CODEOWNERS`, `.gitattributes`, the root `Makefile` or `pyproject.toml`, and build files up to 3 folders deep (`package.json`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, `Cargo.toml`; never inside `node_modules`). Script files (`*.sh`, `mvnw`, `gradlew`) are listed by path only, not read.
+- **Commits on the default branch** in the lookback window, the most recent 300 by default (up to 1000 with `max-commits`): only whether each one has a merged pull request. No commit IDs, messages or authors are requested; only the three counts are kept.
 - **Dependency changes:** for PRs that change a dependency manifest, the added package names.
 - **Repository settings:** the default branch, its protection rules and rulesets.
+- **History start:** whether the default branch has any commit older than the lookback window (the date of at most one commit, used only to word the "not enough PRs" note; nothing about it is kept).
 
 ## What does it never read or keep?
 
@@ -55,4 +57,4 @@ You can also read the report and `score.json` from your first run before sharing
 
 ## What do we share with Blore.AI?
 
-Nothing by default. The Action sends us nothing. If you want our help, share `score.json` only: it holds scores, points and criterion results, never code or names. The report's "What's next" section can be turned off with `show-cta: false`.
+Nothing by default. The Action sends us nothing. If you want our help, share `score.json` only: it holds scores, points and criterion results, and the commit counts behind the direct-push observation, never code or names. The report's "What's next" section can be turned off with `show-cta: false`.
