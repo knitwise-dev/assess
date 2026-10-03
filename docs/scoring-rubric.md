@@ -1,0 +1,170 @@
+# Scoring rubric
+
+**Version 0.1.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
+
+This document explains exactly how the Knitwise by Blore.AI Assess Action turns your repository's activity into scores. It is public so you can check our working (NFR-9). The numbers below live in one file in the code, `packages/assess/src/thresholds.ts`, and change only with a new rubric version.
+
+## How a dimension is scored
+
+Each of the six dimensions has criteria worth points. A criterion is one of:
+
+- **Met, partly met or not met:** it counts toward the dimension's *applicable points*.
+- **Not applicable:** it does not apply to your team, for example Claude Code rules when your team uses only Codex.
+- **Unknown:** the Action could not see it, for example a setting that needs admin access, which the Action never requests.
+
+The score is **round(5 × points earned ÷ applicable points)**, rounding halves up.
+*Why:* you are scored only on what applies to you and what we could see. Not-applicable and unknown criteria are listed in the report with the reason. **Unknown is never counted as 0.**
+
+Penalties subtract points. Earned points never go below 0 or above the applicable points.
+*Why:* a penalty flags a real risk without wiping out the rest of the dimension.
+
+If a dimension has fewer than **3** applicable points, it shows **insufficient data** instead of a score.
+*Why:* a score resting on one or two points says more about what we couldn't see than about your practice, and a 0 would claim something we did not measure.
+
+## General rules
+
+| Rule | Why |
+|---|---|
+| With fewer than **10** merged PRs in the lookback window, criteria based on ratios are not applicable, with the reason "Not enough PRs in window: found N, need 10." The rest of the dimension is still scored if at least 3 applicable points remain. | Percentages over a handful of PRs swing wildly and would mislead, but settings and files can still be judged. |
+| Comparisons between AI-assisted and other PRs run only when each group has at least **5** PRs. | A gap between a group of 2 and a group of 50 is noise, not a finding. |
+| Figures per contributor appear only when there are at least **3** contributors. Individuals are never named or scored. | With 1 or 2 people, a "share of contributors" points at a person (BR-4). |
+| Only committed files count. `.claude/settings.local.json` is ignored. | Local settings are personal and not part of the team's agreed setup. |
+| Wherever changed lines are counted (PR size, large PRs, silent approvals), lockfiles, generated files and test data are left out. Lockfiles: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.sum`. Generated: files your `.gitattributes` marks `linguist-generated`, plus minified files and source maps. Test data: `**/__snapshots__/**`, `**/*.snap`, `**/test/fixtures/**`, `**/tests/fixtures/**`, `**/testdata/**`, `**/test/golden/**`, `**/*.golden`. The optional `exclude-paths` input adds your own globs. | Nobody reviews a lockfile, a build bundle or a recorded fixture line by line, so counting them would make routine changes look huge. If you commit build output, mark it `linguist-generated`; GitHub then also collapses it in diffs. |
+
+What this means for a repository with fewer than 10 merged PRs:
+
+| Dimension | Points left | Result |
+|---|---|---|
+| Agent configuration | all (no ratios) | scored |
+| Test discipline | 1 (CI runs tests) | insufficient data |
+| Review depth | 0 | insufficient data |
+| PR hygiene | 2 (template criteria) | insufficient data |
+| Safety gates | all except settings the token cannot read | scored if at least 3 remain |
+| Adoption signal | 0 | insufficient data |
+
+## AI-assisted PR detection (not scored)
+
+The Action flags a PR as AI-assisted when it finds any of these signals:
+
+- `Co-authored-by` trailers naming Claude or Codex
+- agent branch-name patterns
+- bot authors
+- labels
+- answers in the PR template
+
+It also reports which agents are in use: Claude Code, Codex, both, or unknown. If no agent is detected but a `.claude/` folder is committed, it assumes Claude Code is in use.
+
+*Why:* several dimensions compare AI-assisted PRs with others, and the agent configuration rules depend on which agents the team uses.
+
+Detection is best-effort: an agent used without any of these signals is invisible to it, and every report says so. The per-PR flag is used only inside the run. It never appears in the report or in `score.json`.
+
+## Agent configuration (5 points)
+
+| Points | Criterion | Applies when | Why |
+|---|---|---|---|
+| +1 | `CLAUDE.md` or `AGENTS.md` exists at the repo root with at least **10** non-empty lines | Always | Agents need a shared starting point, and a few lines is not yet a standard. |
+| +1 | It names build, test or lint commands that exist in `package.json`, `Makefile` or `pyproject.toml` | Always | Agents verify their work with these commands, so they must be real. With no instruction files, no commands are named. |
+| +1 | Each agent in use has instructions it reads: `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex. If both files exist, they don't contradict each other on commands, or one names the other as the source of truth | Always | An agent with no instructions, or two files that disagree, gives inconsistent results. |
+| +1 | `.claude/settings.json` has permission rules and no broad allow-all: `Bash(*)`, a bare `Bash`, or `defaultMode` set to `bypassPermissions` | Claude Code in use | Broad permissions let an agent run anything without asking. |
+| +1 | Hooks are configured in `.claude/settings.json` | Claude Code in use | Hooks enforce the standard automatically, for example by running tests before the agent finishes. |
+
+A repository with no config files scores a real 0, never insufficient data: the first three criteria always apply, so at least 3 points do.
+*Why:* a missing setup is exactly what this dimension measures.
+
+## Test discipline (5 points)
+
+| Points | Criterion | Why |
+|---|---|---|
+| 0–4 | Among PRs that change source files, the share that also change test files: **80%** or more is 4, **60–79%** is 3, **40–59%** is 2, **20–39%** is 1, below **20%** is 0. | Code that changes without tests is the main risk with AI-generated code. |
+| +1 | A workflow runs tests on `pull_request`. | Tests that never run in CI don't protect the main branch. |
+| −1 | AI-assisted PRs include tests at least **15** percentage points less often than other PRs. The gap is always reported as a finding when it can be computed. | It shows whether agents are held to the same bar as people. |
+
+The score is floored at 0 and capped at 5.
+
+## Review depth (5 points)
+
+| Points | Criterion | Why |
+|---|---|---|
+| 0–5 | The share of merged PRs reviewed by someone other than the author: **90%** or more is 5, **75–89%** is 4, **50–74%** is 3, **25–49%** is 2, any but below **25%** is 1, none is 0. | A second person reading the change is the core safeguard. |
+| −1 | More than **60%** of qualifying PRs are approved silently. Qualifying PRs are approved, change more than **100** lines, and were not opened by a bot. An approval is silent when, up to and including it, nobody other than the author left a review body, an inline review comment or a PR conversation comment. Comments from bots (deploy previews, coverage reports) are not discussion. Needs at least **5** qualifying PRs, otherwise not applicable. | A silent approval on a substantial change suggests rubber-stamping; on a 10-line fix it is normal, so small PRs don't count. |
+| −1 | More than **20%** of large PRs (over **400** changed lines) are approved within **10** minutes of being opened. | Nobody reviews 400 lines properly in 10 minutes. |
+
+The score is floored at 0.
+
+## PR hygiene (5 points)
+
+| Points | Criterion | Why |
+|---|---|---|
+| +2 | The median PR changes **200** lines or fewer. | Small PRs get real reviews, and agents tend to produce large ones. |
+| +1 | The median PR changes **201–400** lines (instead of the +2 above). | Still reviewable, with effort. |
+| +1 | A PR template exists. | A template makes authors say what they changed and why. |
+| +1 | The template asks about AI agent use and how the change was verified. | Reviewers need to know what to check more carefully. |
+| +1 | At least **80%** of PRs have a non-empty description. | A PR without a description cannot be reviewed against its intent. |
+
+## Safety gates (5 points, one each)
+
+| Criterion | Why |
+|---|---|
+| The default branch requires reviews (read from rulesets). | Without it, the review standard is optional. |
+| The default branch requires status checks. | Without it, failing tests can still be merged. |
+| Secret scanning runs in CI, **or** GitHub's built-in secret scanning is enabled. With no CI scanner and the setting unreadable (it needs admin access), this is unknown, not 0. | Agents copy credentials into code more readily than people do. |
+| A dependency review or audit step runs in CI. | Agents add dependencies freely; something should check them. |
+| A `CODEOWNERS` file exists. | It routes changes to the people who know the code. |
+
+If the token cannot read a criterion, it is marked unknown and excluded from applicable points.
+
+With only classic branch protection, "requires reviews" is unknown, with the reason "Reviews may be required via classic branch protection, which this token can't read." It is never inferred from the reviews PRs actually received.
+*Why:* review depth already scores behaviour; this criterion is about the rule, and guessing it would count the same evidence twice.
+
+To have these settings read (classic required approvals, built-in secret scanning), pass the Action's optional `admin-token` input: a token with read access to repository administration only, used for those reads and nothing else.
+
+Whether secret scanning **push protection** is on is reported as a finding, not scored.
+
+The Safety gates details always list unknown criteria with their reason. The report also suggests re-running with `admin-token` (a note in the Safety gates details and a line in the footer) only when those unknown criteria could change the **overall level**: that is, if counting them all as met, or all as not met, would give a different level. *Why:* a note on every report would be noise; it is worth a re-run only when the answer could change the headline.
+
+New dependencies added in AI-assisted PRs are also listed as a finding for manual review. This is not scored.
+*Why:* the Action may call only api.github.com (NFR-2), so it cannot check package registries itself. A person should confirm each new package is the one intended.
+
+## Adoption signal (5 points)
+
+This scores how **visible and even** AI adoption is, not how much AI the team uses.
+
+| Points | Criterion | Why |
+|---|---|---|
+| 0–2 | The share of PRs that **record** AI use in a co-author trailer, a label or the PR description: **5%** or more is 1, **20%** or more is 2. Either needs at least **3** recorded PRs. | You can't govern what you can't see, and one recorded PR is a one-off, not a habit. |
+| +1 | At least **40%** of active contributors have an AI-assisted PR. | Below that, the practice depends on a few people. |
+| +1 | At least **70%** do. | The team shares one way of working. |
+| +1 | **Recording consistency:** of the PRs detected as AI-assisted by any signal, at least **50%** also record it. Needs at least **5** AI-assisted PRs. | Agent use that shows up only in branch names or bot authors isn't something the team chose to make visible. |
+
+All four criteria are ratios, so with fewer than 10 PRs this dimension is insufficient data. With fewer than **3** contributors, the two contributor-share criteria are not applicable, and only the team total is shown.
+
+How these are read:
+
+- **A record** is a co-author trailer, a label or the PR description (a template answer or an agent's own footer): something the team chooses to leave. Agent branch names and bot authors are not records, though they still count as AI use for the contributor shares and for consistency.
+- **Active contributors** are the people who authored merged PRs in the window. Bots are not contributors, so a PR opened by an agent's bot credits no one.
+- PRs opened by automation bots (Dependabot, Renovate) are left out of the recorded share.
+
+## Top fixes
+
+The report lists up to **3** fixes, chosen from criteria that scored below their maximum in dimensions that have a score. Not-applicable and unknown criteria are never fixes. They are ranked:
+
+1. **Critical first:** broad allow-all agent permissions; no required reviews or status checks on the default branch; AI-assisted PRs including tests at least 15 percentage points less often; no secret scanning of any kind.
+2. **Then by score points recoverable,** scaled like the dimension, so a point in a dimension with 3 applicable points counts more than one in a dimension with 5.
+3. **Then by effort:** configuration-file changes (S) before CI changes (M) before habit changes (L).
+
+*Why:* the riskiest gaps should lead even when a bigger but safer gain is available; among equals, the cheapest fix first.
+
+## Overall level (1–5)
+
+Average the scores of the dimensions that have data, then map the average to a level:
+
+| Average | Level |
+|---|---|
+| below 1.0 | 1 |
+| 1.0–1.9 | 2 |
+| 2.0–2.9 | 3 |
+| 3.0–3.9 | 4 |
+| 4.0 or more | 5 |
+
+If fewer than **4** of the 6 dimensions have data, the overall level is insufficient data.
+*Why:* a level built from two or three dimensions would overstate what we know.

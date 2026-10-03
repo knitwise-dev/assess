@@ -1,0 +1,43 @@
+name: Knitwise Assess
+description: "Knitwise by Blore.AI: a read-only assessment of how a team governs AI coding agents (Claude Code, Codex). Knit your team's AI habits into one practice."
+inputs:
+  github-token:
+    description: Token with contents:read and pull-requests:read.
+    default: ${{ github.token }}
+  lookback-days:
+    description: How many days of merged PRs to analyse.
+    default: '90'
+  max-prs:
+    description: Upper bound on PRs analysed.
+    default: '300'
+  admin-token:
+    description: >-
+      Optional. A token with read access to repository administration, used only
+      to read classic branch protection (required approvals) and secret scanning
+      settings. Leave unset to skip.
+    required: false
+  exclude-paths:
+    description: >-
+      Optional. Comma-separated globs (for example "docs/**,*.csv") left out when
+      counting changed lines, on top of lockfiles, generated files and test data.
+    required: false
+  output-dir:
+    description: >-
+      Directory (relative to the workspace) where report.md and score.json are
+      written. Upload it with actions/upload-artifact to keep the files.
+    default: ai-practice-report
+  show-cta:
+    description: >-
+      Whether the report ends with the "What's next" section offering a
+      generated setup PR. Set to "false" to leave it out.
+    default: 'true'
+outputs:
+  overall-level:
+    description: Overall maturity level (1-5), or "insufficient-data".
+  score-file:
+    description: Path to score.json (scores and counts only, no code or names).
+  report-file:
+    description: Path to report.md (the same Markdown as the job summary).
+runs:
+  using: node24
+  main: dist/index.js
