@@ -31031,7 +31031,7 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3597);
 /* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(1738);
 /* harmony import */ var _collect_client_js__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(8935);
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(1921);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(8666);
 
 
 
@@ -31055,7 +31055,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 1921:
+/***/ 8666:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -31075,7 +31075,7 @@ const DIMENSIONS = [
     'adoption-signal',
 ];
 /** Version of docs/scoring-rubric.md the scores follow. Recorded in score.json. */
-const RUBRIC_VERSION = '0.1';
+const RUBRIC_VERSION = '0.2';
 function insufficientData(dimension, reason, criteria = []) {
     return { dimension, status: 'insufficient-data', reason, criteria };
 }
@@ -31101,6 +31101,8 @@ const MIN_PRS_FOR_RATIO = 10;
 const MIN_APPLICABLE_POINTS = 3;
 const MIN_PRS_PER_GROUP_FOR_COMPARISON = 5;
 const MIN_CONTRIBUTORS_FOR_SHARES = 3;
+/** Fewer human contributors than this: required reviews are not applicable (one person can't approve their own PR). */
+const MIN_CONTRIBUTORS_FOR_REQUIRED_REVIEWS = 2;
 /**
  * Lockfiles excluded whenever changed lines are counted (review depth, PR
  * hygiene), along with files GitHub marks as generated.
@@ -31264,6 +31266,8 @@ const LABEL_AGENTS = [
     ['codex', /\bcodex\b/i],
 ];
 /** Labels that mark AI use without naming an agent. Exact names: "agent" alone is too common. */
+/** Claude Code reads CLAUDE.md at the root and in subfolders. */
+const CLAUDE_MD = /(^|\/)CLAUDE\.md$/;
 const GENERIC_AI_LABEL = /^(ai|ai-assisted|ai-generated|ai-agent|llm-generated)$/i;
 const NAME_AGENTS = [
     ['claude-code', /\bclaude\b/i],
@@ -31333,7 +31337,10 @@ function detectAiAssistance(data) {
         for (const signal of result.signals)
             signalCounts[signal] += 1;
     }
-    const claudeCodeAssumed = agents.size === 0 && data.config.claudeDirectoryPresent;
+    // Committed Claude files mean Claude Code is in use, whatever the PRs show:
+    // many teams push directly or leave no trailers (pilot bug 2).
+    const claudeFiles = data.config.claudeDirectoryPresent || data.config.files.some((file) => CLAUDE_MD.test(file.path));
+    const claudeCodeAssumed = !agents.has('claude-code') && claudeFiles;
     if (claudeCodeAssumed)
         agents.add('claude-code');
     return {
@@ -31456,9 +31463,9 @@ const percent = (share) => `${Math.round(share * PERCENT)}%`;
 
 ;// CONCATENATED MODULE: ./src/checks/commands.ts
 const KINDS = [
-    ['test', /test|spec|e2e|vitest|jest|pytest|tox|nox/i],
-    ['lint', /lint|eslint|ruff|flake8|pylint|mypy|typecheck|type-check|tsc|check|format|fmt|prettier|black/i],
-    ['build', /build|compile|bundle|package|dist/i],
+    ['test', /test|spec|e2e|vitest|jest|pytest|tox|nox|verify/i],
+    ['lint', /lint|eslint|ruff|flake8|pylint|mypy|typecheck|type-check|tsc|check|format|fmt|prettier|black|clippy|vet|spotless|detekt/i],
+    ['build', /build|compile|bundle|package|dist|assemble/i],
 ];
 const NODE_RUNNERS = /^(npm|pnpm|yarn|bun)$/;
 /** Package-manager subcommands that are not scripts. */
@@ -31467,9 +31474,14 @@ const NODE_BUILTINS = new Set([
     'init', 'create', 'publish', 'link', 'audit', 'outdated', 'ls', 'list', 'why', 'version', 'view', 'info',
     'pack', 'login', 'config', 'cache', 'rebuild', 'prune', 'dedupe', 'set', 'workspace', 'workspaces',
 ]);
+/** Flags that take a value, skipped when finding the script name. */
+const NODE_VALUE_FLAGS = new Set(['--prefix', '-C', '--dir', '-w', '--workspace', '--filter', '-F', '--cwd']);
 const PYTHON_RUNNERS = /^(uv|poetry|hatch|pdm|pipenv)$/;
 const PYTHON_TOOLS = /^(pytest|ruff|mypy|black|flake8|pylint|tox|nox)$/;
 const WORKSPACE_FLAG = /^(-w|--workspace|--filter|-F)$/;
+const MAVEN = /^(\.\/)?(mvn|mvnw)$|\/mvnw$/;
+const GRADLE = /^(\.\/)?(gradle|gradlew)$|\/gradlew$/;
+const SCRIPT_PATH = /^(\.\/)?[\w./-]+\.sh$/;
 /** Inline `code` and fenced code blocks: commands are taken only from these, not prose. */
 function codeSegments(markdown) {
     const fenced = [...markdown.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map((match) => match[1] ?? '');
@@ -31489,71 +31501,104 @@ function commandsIn(lines) {
     const commands = new Map();
     for (const line of lines) {
         for (const part of line.split(/&&|\|\||;/)) {
-            const command = parseCommand(part.trim().replace(/^\$\s*/, ''));
-            if (command)
+            for (const command of parseCommand(part.trim().replace(/^\$\s*/, '')))
                 commands.set(command.command, command);
         }
     }
     return [...commands.values()];
 }
+/** The commands in one shell command: several for `mvn clean package` or `./gradlew lint test`. */
 function parseCommand(text) {
     const words = text.split(/\s+/).filter(Boolean);
     const [first = '', second = '', third = ''] = words;
     const workspace = words.some((word) => WORKSPACE_FLAG.test(word) || word.startsWith('--workspace='));
     const make = (ecosystem, name, command) => {
         const kind = classify(name);
-        return kind ? { command, kind, ecosystem, name, workspace } : undefined;
+        return kind ? [{ command, kind, ecosystem, name, workspace }] : [];
     };
+    const args = words.slice(1).filter((word) => !word.startsWith('-'));
     if (NODE_RUNNERS.test(first)) {
-        const script = second === 'run' || second === 'run-script' ? third : second;
-        if (!script || script.startsWith('-') || NODE_BUILTINS.has(script))
-            return undefined;
+        const rest = [];
+        for (let i = 1; i < words.length; i++) {
+            const word = words[i] ?? '';
+            if (NODE_VALUE_FLAGS.has(word))
+                i++;
+            else if (!word.startsWith('-'))
+                rest.push(word);
+        }
+        const script = rest[0] === 'run' || rest[0] === 'run-script' ? rest[1] : rest[0];
+        if (!script || NODE_BUILTINS.has(script))
+            return [];
         return make('node', script, `${first} run ${script}`);
     }
-    if (first === 'make') {
-        if (!second || second.startsWith('-'))
-            return undefined;
-        return make('make', second, `make ${second}`);
+    if (MAVEN.test(first))
+        return args.flatMap((goal) => make('maven', goal, `mvn ${goal}`));
+    if (GRADLE.test(first)) {
+        return args.map((task) => task.split(':').pop() ?? task).flatMap((task) => make('gradle', task, `gradle ${task}`));
     }
-    if (PYTHON_RUNNERS.test(first) && second === 'run' && third) {
+    if (first === 'go' && /^(test|build|vet)$/.test(second))
+        return make('go', second, `go ${second}`);
+    if (first === 'cargo' && /^(test|build|clippy|check|fmt)$/.test(second))
+        return make('cargo', second, `cargo ${second}`);
+    if (first === 'make')
+        return second && !second.startsWith('-') ? make('make', second, `make ${second}`) : [];
+    if (PYTHON_RUNNERS.test(first) && second === 'run' && third)
         return make('python', third, `${first} run ${third}`);
-    }
-    if (first === 'python' && second === '-m' && PYTHON_TOOLS.test(third)) {
+    if (first === 'python' && second === '-m' && PYTHON_TOOLS.test(third))
         return make('python', third, `python -m ${third}`);
-    }
     if (PYTHON_TOOLS.test(first))
         return make('python', first, first);
-    return undefined;
+    const script = (first === 'bash' || first === 'sh') && SCRIPT_PATH.test(second) ? second : SCRIPT_PATH.test(first) ? first : '';
+    if (script) {
+        const path = script.replace(/^\.\//, '');
+        return make('script', path.split('/').pop() ?? path, path).map((command) => ({ ...command, name: path }));
+    }
+    return [];
 }
 function classify(name) {
     return KINDS.find(([, pattern]) => pattern.test(name))?.[0];
 }
-function readManifests(files) {
-    const content = (path) => files.find((file) => file.path === path)?.content;
-    const manifests = {};
-    const packageJson = content('package.json');
-    if (packageJson !== undefined) {
+const named = (files, pattern) => files.filter((file) => pattern.test(file.path));
+function readManifests(files, scriptPaths = []) {
+    const manifests = {
+        poms: named(files, /(^|\/)pom\.xml$/).map((file) => file.content),
+        gradleFiles: named(files, /(^|\/)build\.gradle(\.kts)?$/).map((file) => file.content),
+        hasGoMod: named(files, /(^|\/)go\.mod$/).length > 0,
+        hasCargo: named(files, /(^|\/)Cargo\.toml$/).length > 0,
+        scriptPaths: new Set(scriptPaths),
+    };
+    const scripts = new Set();
+    let packageJsonFound = false;
+    for (const file of named(files, /(^|\/)package\.json$/)) {
         try {
-            const scripts = JSON.parse(packageJson).scripts ?? {};
-            manifests.npmScripts = new Set(Object.keys(scripts));
+            const parsed = JSON.parse(file.content);
+            packageJsonFound = true;
+            for (const script of Object.keys(parsed.scripts ?? {}))
+                scripts.add(script);
         }
         catch {
-            // Invalid JSON: treated as no package.json.
+            // Invalid JSON: ignored.
         }
     }
-    const makefile = content('Makefile');
+    if (packageJsonFound)
+        manifests.npmScripts = scripts;
+    const makefile = files.find((file) => file.path === 'Makefile')?.content;
     if (makefile !== undefined) {
         const targets = [...makefile.matchAll(/^([A-Za-z0-9_.\- ]+?)\s*::?(?!=)/gm)].flatMap((match) => (match[1] ?? '').split(/\s+/));
         manifests.makeTargets = new Set(targets.filter((target) => target && !target.startsWith('.')));
     }
-    const pyproject = content('pyproject.toml');
+    const pyproject = files.find((file) => file.path === 'pyproject.toml')?.content;
     if (pyproject !== undefined)
         manifests.pyproject = pyproject;
     return manifests;
 }
+const MAVEN_PHASES = new Set(['validate', 'compile', 'test', 'package', 'verify', 'install', 'deploy', 'clean', 'site']);
+/** Gradle tasks every Java or Android build has, including Android variants (assembleDebug, testDebugUnitTest). */
+const GRADLE_STANDARD = /^(build|test|check|assemble|clean|lint|jar|connected|bundle)/;
+const mentions = (texts, word) => texts.some((text) => text.toLowerCase().includes(word.toLowerCase()));
 /**
- * Whether a named command exists. `unverified` when its manifest isn't in the
- * repo, or it targets a workspace package whose package.json isn't read.
+ * Whether a named command exists. `unverified` when the build file it needs
+ * isn't in the repo, or it targets a workspace package that wasn't read.
  */
 function commandStatus(command, manifests) {
     switch (command.ecosystem) {
@@ -31573,6 +31618,28 @@ function commandStatus(command, manifests) {
             if (manifests.pyproject === undefined)
                 return 'unverified';
             return new RegExp(`\\b${escapeRegExp(command.name)}\\b`).test(manifests.pyproject) ? 'found' : 'missing';
+        case 'maven': {
+            if (!manifests.poms.length)
+                return 'unverified';
+            if (MAVEN_PHASES.has(command.name))
+                return 'found';
+            const plugin = command.name.split(':')[0] ?? '';
+            return command.name.includes(':') && mentions(manifests.poms, plugin) ? 'found' : 'missing';
+        }
+        case 'gradle': {
+            if (!manifests.gradleFiles.length)
+                return 'unverified';
+            if (GRADLE_STANDARD.test(command.name))
+                return 'found';
+            const plugin = command.name.replace(/(Check|Format|Apply|Main|Test)$/, '');
+            return mentions(manifests.gradleFiles, plugin) ? 'found' : 'missing';
+        }
+        case 'go':
+            return manifests.hasGoMod ? 'found' : 'unverified';
+        case 'cargo':
+            return manifests.hasCargo ? 'found' : 'unverified';
+        case 'script':
+            return [...manifests.scriptPaths].some((path) => path === command.name || path.endsWith(`/${command.name}`)) ? 'found' : 'missing';
     }
 }
 function escapeRegExp(text) {
@@ -31593,7 +31660,7 @@ const BROAD_ALLOW = new Set(['Bash(*)', 'Bash']);
 const BYPASS_MODE = 'bypassPermissions';
 const agentConfig_LABELS = {
     rootFile: `CLAUDE.md or AGENTS.md at the repo root with at least ${MIN_INSTRUCTION_LINES} non-empty lines`,
-    commands: 'Names build, test or lint commands that exist in package.json, Makefile or pyproject.toml',
+    commands: 'Names build, test or lint commands that exist in the repo',
     agentCoverage: 'Each agent in use has instructions it reads, and the two files agree on commands',
     permissions: '.claude/settings.json has permission rules and no broad allow-all',
     hooks: 'Hooks configured in .claude/settings.json',
@@ -31629,7 +31696,7 @@ function checkAgentConfig(data, detection = detectAiAssistance(data)) {
         criteria.push(agentConfig_binary('commands', agentConfig_LABELS.commands, false, 'No CLAUDE.md or AGENTS.md, so no commands are named.'));
     }
     else {
-        const manifests = readManifests(files);
+        const manifests = readManifests(files, data.config.scriptPaths);
         const named = uniqueCommands(instructions.flatMap((file) => namedCommands(file.content)));
         const byStatus = { found: [], missing: [], unverified: [] };
         for (const command of named)
@@ -31639,7 +31706,7 @@ function checkAgentConfig(data, detection = detectAiAssistance(data)) {
         if (byStatus.found.length)
             evidence.push(`Commands found: ${byStatus.found.join(', ')}.`);
         if (byStatus.unverified.length) {
-            evidence.push(`Commands not verifiable from root manifests: ${byStatus.unverified.join(', ')}.`);
+            evidence.push(`Commands not verifiable from the repo's build files: ${byStatus.unverified.join(', ')}.`);
         }
         for (const command of byStatus.missing) {
             finding('missing-command', 'warning', `Agent instructions name \`${command}\`, which doesn't exist in the repo.`);
@@ -31668,7 +31735,7 @@ function checkAgentConfig(data, detection = detectAiAssistance(data)) {
     criteria.push(agentConfig_binary('agent-coverage', agentConfig_LABELS.agentCoverage, missingFor.length === 0 && !conflict, coverageEvidence));
     // 4 and 5. Claude Code settings.
     if (!claudeInUse) {
-        const reason = 'Claude Code is not in use (no Claude signals or committed .claude/ folder).';
+        const reason = 'Claude Code is not in use (no CLAUDE.md, .claude/ folder or Claude signals on PRs).';
         criteria.push(notAssessed(`${agentConfig_ID}/permissions`, agentConfig_LABELS.permissions, 'not-applicable', 1, reason));
         criteria.push(notAssessed(`${agentConfig_ID}/hooks`, agentConfig_LABELS.hooks, 'not-applicable', 1, reason));
     }
@@ -31861,13 +31928,23 @@ const CONFIG_PATTERNS = [
     /^(\.github\/|docs\/)?CODEOWNERS$/,
     // Marks generated files (linguist-generated), excluded from PR sizes.
     /^\.gitattributes$/,
-    // Root build manifests, to check the commands agent config names exist.
-    /^(package\.json|Makefile|pyproject\.toml)$/,
+    // Build files, to check the commands agent config names exist. Root Makefile and pyproject.toml;
+    // npm, Maven, Gradle, Go and Cargo files up to 3 folders deep (monorepos).
+    /^(Makefile|pyproject\.toml)$/,
+    /^([^/]+\/){0,3}(package\.json|pom\.xml|build\.gradle(\.kts)?|go\.mod|Cargo\.toml)$/,
 ];
 function isConfigPath(path) {
     if (path.split('/').some((segment) => IGNORED_DIRS.has(segment)))
         return false;
     return CONFIG_PATTERNS.some((pattern) => pattern.test(path));
+}
+const SCRIPT = /(^|\/)([^/]+\.sh|mvnw|gradlew)$/;
+const MAX_SCRIPT_DEPTH = 4; // path segments: up to 3 folders, then the file
+/** Runnable scripts up to 3 folders deep, outside ignored folders. */
+function scriptPathsIn(paths) {
+    return paths.filter((path) => SCRIPT.test(path) &&
+        path.split('/').length <= MAX_SCRIPT_DEPTH &&
+        !path.split('/').some((segment) => IGNORED_DIRS.has(segment)));
 }
 /** A committed file in a .claude/ folder; personal settings.local.json does not count. */
 function isClaudeDirectoryPath(path) {
@@ -31994,7 +32071,31 @@ function normalise(text) {
     return text.replace(HTML_COMMENT, '').replace(/\s+/g, ' ').trim();
 }
 
+;// CONCATENATED MODULE: ./src/checks/singleMaintainer.ts
+
+// The single-maintainer rule (docs/scoring-rubric.md), shared by safety gates
+// and review depth: one person can't review their own PRs.
+/** Agreed reason when one person does all the work. */
+const SINGLE_MAINTAINER = "Single maintainer: GitHub doesn't allow approving your own PR.";
+/**
+ * Fewer than 2 people opened or reviewed the window's PRs (bots excluded).
+ * With no human PRs the team size is unknown, so this is false.
+ */
+function isSingleMaintainer(data) {
+    const people = new Set();
+    for (const pr of data.pullRequests) {
+        if (pr.botAuthor)
+            continue;
+        people.add(pr.author);
+        for (const review of pr.reviews)
+            if (!review.reviewerIsBot)
+                people.add(review.reviewer);
+    }
+    return people.size > 0 && people.size < MIN_CONTRIBUTORS_FOR_REQUIRED_REVIEWS;
+}
+
 ;// CONCATENATED MODULE: ./src/checks/reviewDepth.ts
+
 
 
 
@@ -32028,8 +32129,12 @@ function checkReviewDepth(data, detection = detectAiAssistance(data), isGenerate
     // Automation bots (Dependabot, Renovate) are left out, as in test discipline; agent bots count.
     const prs = data.pullRequests.filter((pr) => !pr.botAuthor || isAiAssisted(detection, pr));
     const criteria = [];
-    // Base: share reviewed by someone else.
-    if (prs.length === 0) {
+    // Base: share reviewed by someone else. Not applicable to a single maintainer,
+    // who has no one else to review; the penalties below need approvals anyway.
+    if (isSingleMaintainer(data)) {
+        criteria.push(notAssessed(`${reviewDepth_ID}/reviewed-share`, reviewDepth_LABELS.reviewedShare, 'not-applicable', BASE_MAX_POINTS, SINGLE_MAINTAINER));
+    }
+    else if (prs.length === 0) {
         criteria.push(notAssessed(`${reviewDepth_ID}/reviewed-share`, reviewDepth_LABELS.reviewedShare, 'unknown', BASE_MAX_POINTS, 'Every PR in the window was opened by an automation bot.'));
     }
     else {
@@ -32172,6 +32277,8 @@ function steps(document, all, seen) {
 
 
 
+
+
 // Safety gates (docs/scoring-rubric.md, FR-A5). Five criteria, one point each.
 const safetyGates_DIMENSION = 'safety-gates';
 const safetyGates_ID = 'safety-gates';
@@ -32196,23 +32303,31 @@ function checkSafetyGates(data, detection = detectAiAssistance(data)) {
     const criteria = [];
     const branch = data.repository.defaultBranch;
     const protection = data.config.branchProtection;
-    // 1 and 2. Branch protection on the default branch.
-    if (!protection.available) {
+    // 1 and 2. Branch protection on the default branch. With a single maintainer,
+    // required reviews are not applicable: GitHub won't let them approve their own PR.
+    if (isSingleMaintainer(data)) {
+        criteria.push(notAssessed(`${safetyGates_ID}/requires-reviews`, safetyGates_LABELS.requiresReviews, 'not-applicable', 1, SINGLE_MAINTAINER));
+    }
+    else if (!protection.available) {
         criteria.push(notAssessed(`${safetyGates_ID}/requires-reviews`, safetyGates_LABELS.requiresReviews, 'unknown', 1, protection.reason));
+    }
+    else if (protection.value.requiredApprovals === null) {
+        // Never inferred from the reviews PRs received: review depth scores behaviour.
+        criteria.push(notAssessed(`${safetyGates_ID}/requires-reviews`, safetyGates_LABELS.requiresReviews, 'unknown', 1, CLASSIC_REVIEWS_UNREADABLE));
+    }
+    else {
+        const { requiredApprovals } = protection.value;
+        const approvals = `${branch} requires ${requiredApprovals} approving ${requiredApprovals === 1 ? 'review' : 'reviews'}.`;
+        evidence.push(approvals);
+        if (requiredApprovals === 0)
+            finding('no-required-reviews', 'critical', `${branch} can be merged without any review.`);
+        criteria.push(safetyGates_binary('requires-reviews', safetyGates_LABELS.requiresReviews, requiredApprovals > 0, approvals));
+    }
+    if (!protection.available) {
         criteria.push(notAssessed(`${safetyGates_ID}/requires-status-checks`, safetyGates_LABELS.requiresChecks, 'unknown', 1, protection.reason));
     }
     else {
-        const { requiredApprovals, requiredStatusChecks } = protection.value;
-        if (requiredApprovals === null) {
-            // Never inferred from the reviews PRs received: review depth scores behaviour.
-            criteria.push(notAssessed(`${safetyGates_ID}/requires-reviews`, safetyGates_LABELS.requiresReviews, 'unknown', 1, CLASSIC_REVIEWS_UNREADABLE));
-        }
-        else {
-            evidence.push(`${branch} requires ${requiredApprovals} approving ${requiredApprovals === 1 ? 'review' : 'reviews'}.`);
-            if (requiredApprovals === 0)
-                finding('no-required-reviews', 'critical', `${branch} can be merged without any review.`);
-            criteria.push(safetyGates_binary('requires-reviews', safetyGates_LABELS.requiresReviews, requiredApprovals > 0, `${branch} requires ${requiredApprovals} approving ${requiredApprovals === 1 ? 'review' : 'reviews'}.`));
-        }
+        const { requiredStatusChecks } = protection.value;
         evidence.push(requiredStatusChecks.length
             ? `${branch} requires status checks: ${requiredStatusChecks.join(', ')}.`
             : `${branch} requires no status checks.`);
@@ -32848,6 +32963,7 @@ async function collectRepoConfig(client, repo, adminClient) {
             branchProtection: await readBranchProtection(client, repo, branch, adminClient),
             ...(await readSecretScanning(info, repo, adminClient)),
             claudeDirectoryPresent: paths.some(isClaudeDirectoryPath),
+            scriptPaths: scriptPathsIn(paths),
         },
     };
 }
@@ -33082,6 +33198,7 @@ If you share anything with us, share score.json only. It contains scores and cou
 
 
 
+
 // Top fixes for the report (docs/scoring-rubric.md): unmet criteria ranked
 // critical first, then by the score points they would recover, then effort.
 const NO_FIXES = 'No priority fixes found.';
@@ -33211,6 +33328,19 @@ const CATALOG = {
         effort: 'L',
     },
 };
+/**
+ * In place of required reviews for a single maintainer. It also covers the
+ * required-checks fix, which is then not listed on its own.
+ */
+const SINGLE_MAINTAINER_FIX = {
+    title: 'Require CI to pass before merging, and use a self-review checklist in your PR template',
+    enableChange: 'Adds a ruleset requiring your CI checks (applied by a repository admin) and a self-review checklist to the PR template.',
+    effort: 'S',
+};
+/** A fix whose setup change is part of another's: shown only through the other, when both are candidates. */
+const COVERED_BY = {
+    'adoption/recording-consistency': 'adoption/recorded-share',
+};
 const EFFORT_ORDER = { S: 0, M: 1, L: 2 };
 /** Critical per the milestone 4 decisions. */
 function isCritical(dimension, criterionId) {
@@ -33232,11 +33362,17 @@ function isCritical(dimension, criterionId) {
  */
 function rankFixes(dimensions) {
     const fixes = [];
+    const soloFix = singleMaintainerFix(dimensions);
+    if (soloFix)
+        fixes.push(soloFix);
     dimensions.forEach((dimension, order) => {
         if (!isScored(dimension))
             return;
+        const solo = soloFix !== undefined && dimension.dimension === 'safety-gates';
         for (const criterion of dimension.criteria) {
             if (criterion.status !== 'not-met' && criterion.status !== 'partial')
+                continue;
+            if (solo && criterion.id === 'safety-gates/requires-status-checks')
                 continue;
             const lost = criterion.maxPoints > 0 ? criterion.maxPoints - criterion.points : -criterion.points;
             if (lost <= 0)
@@ -33257,13 +33393,68 @@ function rankFixes(dimensions) {
             });
         }
     });
-    return fixes
+    return mergeDuplicates(fixes)
         .sort((a, b) => Number(b.fix.critical) - Number(a.fix.critical) ||
         b.fix.recoverable - a.fix.recoverable ||
         EFFORT_ORDER[a.fix.effort] - EFFORT_ORDER[b.fix.effort] ||
         a.order - b.order)
         .slice(0, TOP_FIXES)
         .map(({ fix }) => fix);
+}
+/**
+ * One fix per title: criteria sharing a fix (or covered by another candidate,
+ * see COVERED_BY) are listed once, recovering the points of all of them.
+ */
+function mergeDuplicates(fixes) {
+    const candidates = new Set(fixes.map(({ fix }) => fix.criterionId));
+    const merged = new Map();
+    for (const item of fixes) {
+        const coverer = COVERED_BY[item.fix.criterionId];
+        const key = coverer && candidates.has(coverer) ? (CATALOG[coverer]?.title ?? item.fix.title) : item.fix.title;
+        const existing = merged.get(key);
+        if (!existing) {
+            merged.set(key, item);
+            continue;
+        }
+        // Keep the covering fix's wording; otherwise the first one found.
+        const keep = coverer === existing.fix.criterionId || !COVERED_BY[existing.fix.criterionId] ? existing : item;
+        merged.set(key, {
+            order: Math.min(existing.order, item.order),
+            fix: {
+                ...keep.fix,
+                critical: existing.fix.critical || item.fix.critical,
+                recoverable: existing.fix.recoverable + item.fix.recoverable,
+            },
+        });
+    }
+    return [...merged.values()];
+}
+/**
+ * The one fix shown in place of review requirements when safety gates or
+ * review depth applied the single-maintainer rule, even if neither has a score.
+ */
+function singleMaintainerFix(dimensions) {
+    const solo = (dimension) => dimension.criteria.some((criterion) => criterion.status === 'not-applicable' && criterion.reason === SINGLE_MAINTAINER);
+    const order = dimensions.findIndex((dimension) => dimension.dimension === 'safety-gates' && solo(dimension));
+    const index = order >= 0 ? order : dimensions.findIndex(solo);
+    const dimension = dimensions[index];
+    if (!dimension)
+        return undefined;
+    const checks = dimension.criteria.find((criterion) => criterion.id === 'safety-gates/requires-status-checks');
+    const checksLost = checks && (checks.status === 'not-met' || checks.status === 'partial') ? checks.maxPoints - checks.points : 0;
+    return {
+        order: index,
+        fix: {
+            dimension: dimension.dimension,
+            criterionId: dimension.dimension === 'safety-gates' ? 'safety-gates/requires-reviews' : 'review-depth/reviewed-share',
+            title: SINGLE_MAINTAINER_FIX.title,
+            why: [SINGLE_MAINTAINER, checksLost > 0 ? checks?.evidence : undefined].filter(Boolean).join(' '),
+            enableChange: SINGLE_MAINTAINER_FIX.enableChange,
+            effort: SINGLE_MAINTAINER_FIX.effort,
+            critical: true,
+            recoverable: isScored(dimension) ? (checksLost * MAX_SCORE) / dimension.pointsApplicable : 0,
+        },
+    };
 }
 /**
  * Whether the admin-token note is worth showing: re-scoring safety gates with
@@ -33318,7 +33509,7 @@ function escapeMarkdown(text) {
 }
 
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.0"};
+const package_namespaceObject = {"rE":"0.1.1"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */

@@ -8,7 +8,7 @@ From the repository it runs in, through the GitHub API:
 
 - **Merged pull requests** from the lookback window (90 days by default): branch name, labels, description, size, the list of changed files with line counts, review states and times, and who commented when.
 - **Commits** in those PRs: only the `Co-authored-by` lines are kept, to detect AI agents.
-- **Configuration files:** `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, PR templates, workflow files, `CODEOWNERS`, `.gitattributes` and the root `package.json`, `Makefile` or `pyproject.toml`.
+- **Configuration files:** `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, PR templates, workflow files, `CODEOWNERS`, `.gitattributes`, the root `Makefile` or `pyproject.toml`, and build files up to 3 folders deep (`package.json`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, `Cargo.toml`; never inside `node_modules`). Script files (`*.sh`, `mvnw`, `gradlew`) are listed by path only, not read.
 - **Dependency changes:** for PRs that change a dependency manifest, the added package names.
 - **Repository settings:** the default branch, its protection rules and rulesets.
 

@@ -1,6 +1,6 @@
 # Scoring rubric
 
-**Version 0.1.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
+**Version 0.2.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
 
 This document explains exactly how the Knitwise by Blore.AI Assess Action turns your repository's activity into scores. It is public so you can check our working (NFR-9). The numbers below live in one file in the code, `packages/assess/src/thresholds.ts`, and change only with a new rubric version.
 
@@ -52,7 +52,7 @@ The Action flags a PR as AI-assisted when it finds any of these signals:
 - labels
 - answers in the PR template
 
-It also reports which agents are in use: Claude Code, Codex, both, or unknown. If no agent is detected but a `.claude/` folder is committed, it assumes Claude Code is in use.
+It also reports which agents are in use: Claude Code, Codex, both, or unknown. **Claude Code is in use** if a `CLAUDE.md` (at the root or in a subfolder) or a `.claude/` folder is committed, or any PR has a Claude signal such as a co-author trailer, whatever else is detected. Codex is in use only when a PR has a Codex signal.
 
 *Why:* several dimensions compare AI-assisted PRs with others, and the agent configuration rules depend on which agents the team uses.
 
@@ -63,13 +63,16 @@ Detection is best-effort: an agent used without any of these signals is invisibl
 | Points | Criterion | Applies when | Why |
 |---|---|---|---|
 | +1 | `CLAUDE.md` or `AGENTS.md` exists at the repo root with at least **10** non-empty lines | Always | Agents need a shared starting point, and a few lines is not yet a standard. |
-| +1 | It names build, test or lint commands that exist in `package.json`, `Makefile` or `pyproject.toml` | Always | Agents verify their work with these commands, so they must be real. With no instruction files, no commands are named. |
+| +1 | It names build, test or lint commands that exist in the repository: an npm script in any `package.json` up to 3 folders deep (not `node_modules`), a `Makefile` target, a `pyproject.toml` script, a Maven goal (`mvn`/`mvnw`) with a `pom.xml`, a Gradle task (`gradle`/`gradlew`) with a `build.gradle(.kts)`, `go` with a `go.mod`, `cargo` with a `Cargo.toml`, or a script in the repository (`*.sh`, `mvnw`, `gradlew`) | Always | Agents verify their work with these commands, so they must be real. With no instruction files, no commands are named. |
 | +1 | Each agent in use has instructions it reads: `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex. If both files exist, they don't contradict each other on commands, or one names the other as the source of truth | Always | An agent with no instructions, or two files that disagree, gives inconsistent results. |
 | +1 | `.claude/settings.json` has permission rules and no broad allow-all: `Bash(*)`, a bare `Bash`, or `defaultMode` set to `bypassPermissions` | Claude Code in use | Broad permissions let an agent run anything without asking. |
 | +1 | Hooks are configured in `.claude/settings.json` | Claude Code in use | Hooks enforce the standard automatically, for example by running tests before the agent finishes. |
 
 A repository with no config files scores a real 0, never insufficient data: the first three criteria always apply, so at least 3 points do.
 *Why:* a missing setup is exactly what this dimension measures.
+
+When Claude Code is in use and `.claude/settings.json` is not committed, the permissions and hooks criteria score 0, not "not applicable".
+*Why:* a team that has a `CLAUDE.md` but runs Claude Code with no committed settings, often pushing directly with no trailers, is exactly the team missing permissions and hooks.
 
 ## Test discipline (5 points)
 
@@ -90,6 +93,9 @@ The score is floored at 0 and capped at 5.
 | −1 | More than **20%** of large PRs (over **400** changed lines) are approved within **10** minutes of being opened. | Nobody reviews 400 lines properly in 10 minutes. |
 
 The score is floored at 0.
+
+For a single maintainer (see Safety gates), the share reviewed by someone else is not applicable, with the same reason, "Single maintainer: GitHub doesn't allow approving your own PR." The two penalties are unchanged; without reviews they are not applicable anyway, so review depth shows insufficient data rather than 0.
+*Why:* there is no one else to review, so a 0 would only measure team size. The self-review checklist fix replaces it.
 
 ## PR hygiene (5 points)
 
@@ -115,6 +121,9 @@ If the token cannot read a criterion, it is marked unknown and excluded from app
 
 With only classic branch protection, "requires reviews" is unknown, with the reason "Reviews may be required via classic branch protection, which this token can't read." It is never inferred from the reviews PRs actually received.
 *Why:* review depth already scores behaviour; this criterion is about the rule, and guessing it would count the same evidence twice.
+
+With fewer than **2** human contributors in the window (people who opened or reviewed a PR; bots excluded), "requires reviews" is not applicable, with the reason "Single maintainer: GitHub doesn't allow approving your own PR." With no human PRs in the window the team size is unknown, and the criterion is scored as usual. No login is ever shown.
+*Why:* a single maintainer can't approve their own PR, so requiring reviews would block every merge; CI and a self-review checklist are the gates they can use.
 
 To have these settings read (classic required approvals, built-in secret scanning), pass the Action's optional `admin-token` input: a token with read access to repository administration only, used for those reads and nothing else.
 
@@ -146,13 +155,16 @@ How these are read:
 
 ## Top fixes
 
-The report lists up to **3** fixes, chosen from criteria that scored below their maximum in dimensions that have a score. Not-applicable and unknown criteria are never fixes. They are ranked:
+The report lists up to **3** fixes, chosen from criteria that scored below their maximum in dimensions that have a score. Not-applicable and unknown criteria are never fixes, with one exception: for a single maintainer, "Require CI to pass before merging, and use a self-review checklist in your PR template" (effort S, critical) takes the place of required reviews (safety gates) and of the review-depth fix. It appears once, even when review depth has no score, and the separate required-status-checks fix is folded into it. They are ranked:
 
 1. **Critical first:** broad allow-all agent permissions; no required reviews or status checks on the default branch; AI-assisted PRs including tests at least 15 percentage points less often; no secret scanning of any kind.
 2. **Then by score points recoverable,** scaled like the dimension, so a point in a dimension with 3 applicable points counts more than one in a dimension with 5.
 3. **Then by effort:** configuration-file changes (S) before CI changes (M) before habit changes (L).
 
 *Why:* the riskiest gaps should lead even when a bigger but safer gain is available; among equals, the cheapest fix first.
+
+Each fix appears once. Criteria that share a fix (for example the two "spread the practice" criteria) are listed as one fix that recovers the points of all of them, and a fix whose setup change is part of another's ("Record AI use consistently" within "Record AI use on PRs") is folded into it. Duplicates are removed before the top 3 are chosen.
+*Why:* the same advice twice wastes one of only three places.
 
 ## Overall level (1–5)
 
@@ -168,3 +180,15 @@ Average the scores of the dimensions that have data, then map the average to a l
 
 If fewer than **4** of the 6 dimensions have data, the overall level is insufficient data.
 *Why:* a level built from two or three dimensions would overstate what we know.
+
+## Changes
+
+**0.2** (Knitwise Assess 0.1.1), from 0.1:
+
+- **Command recognition:** commands count if they exist in a Maven, Gradle, Go or Cargo build file, in a `package.json` up to 3 folders deep, or as a script in the repository. 0.1 checked only the root `package.json`, `Makefile` and `pyproject.toml`.
+- **Claude Code detection:** a committed `CLAUDE.md` or `.claude/` folder means Claude Code is in use, whatever the PRs show, so a missing `.claude/settings.json` scores 0 instead of "not applicable".
+- **Single-maintainer rule (safety gates):** with fewer than 2 human contributors, "requires reviews" is not applicable, and the fix "Require CI to pass before merging, and use a self-review checklist in your PR template" takes its place.
+- **Single-maintainer rule (review depth):** "reviewed by someone other than the author" is not applicable for a single maintainer, with the same reason.
+- **Top fixes:** each fix appears once.
+
+These change which criteria apply and how many points a repository can earn, so **scores from rubric 0.1 and 0.2 shouldn't be compared directly.** Re-run the Action to get a 0.2 baseline.
