@@ -31075,7 +31075,7 @@ const DIMENSIONS = [
     'adoption-signal',
 ];
 /** Version of docs/scoring-rubric.md the scores follow. Recorded in score.json. */
-const RUBRIC_VERSION = '0.2';
+const RUBRIC_VERSION = '0.2.1';
 function insufficientData(dimension, reason, criteria = []) {
     return { dimension, status: 'insufficient-data', reason, criteria };
 }
@@ -32424,16 +32424,29 @@ function newDependenciesInAiPrs(data, detection) {
 ;// CONCATENATED MODULE: ./src/checks/files.ts
 // Classifies changed files as source or test code for test discipline.
 const SOURCE_EXTENSIONS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rs|java|kt|kts|scala|rb|php|cs|fs|swift|m|mm|c|cc|cpp|cxx|h|hpp|dart|ex|exs|clj|vue|svelte|lua|sh)$/i;
-/** Generated, vendored or built output: neither source nor test. */
-const NOT_AUTHORED = /(^|\/)(node_modules|vendor|third_party|dist|build|out|target|coverage|\.next)\/|\.min\.js$|\.d\.ts$/;
-const TEST_DIRECTORY = /(^|\/)(tests?|__tests__|spec|specs|e2e|integration-tests?|testdata|fixtures)\//i;
-const TEST_FILENAME = /(\.|_)(test|spec)\.[^/]+$|(^|\/)test_[^/]+\.py$|_test\.(go|py|exs?)$|(Test|Tests|Spec|IT)\.(java|kt|scala|cs|swift)$|_spec\.rb$/;
-function isTestFile(path) {
-    return !NOT_AUTHORED.test(path) && (TEST_DIRECTORY.test(path) || TEST_FILENAME.test(path));
+/** Gradle build scripts (build.gradle.kts, settings.gradle.kts): build configuration, not application source. */
+const BUILD_SCRIPT = /(^|\/)[^/]+\.gradle\.kts$/;
+/** Dependencies checked into the repository, at any depth. */
+const VENDORED = /(^|\/)(node_modules|vendor|third_party)\//;
+/**
+ * Build output folders, outside a source tree. Under src/ they are package
+ * names (com/acme/build/, .../out/), so the code there is hand-written.
+ */
+const BUILD_OUTPUT = /^(?:(?!src\/)[^/]+\/)*(dist|build|out|target|coverage|\.next)\//;
+const GENERATED_FILE = /\.min\.js$|\.d\.ts$/;
+/** Maven, Gradle and Android main source sets: never tests, whatever their package or class names. */
+const MAIN_SOURCE = /(^|\/)src\/main\//;
+const TEST_DIRECTORY = /(^|\/)(tests?|__tests__|spec|specs|e2e|integration-tests?|testdata|fixtures|androidTest|cypress|playwright)\//i;
+const TEST_FILENAME = /(\.|_)(test|spec)\.[^/]+$|(^|\/)test_[^/]+\.py$|(^|\/)conftest\.py$|_test\.(go|py|exs?)$|(Test|Tests|Spec|IT)\.(java|kt|scala|cs|swift)$|_spec\.rb$/;
+function notAuthored(path) {
+    return VENDORED.test(path) || BUILD_OUTPUT.test(path) || GENERATED_FILE.test(path);
 }
-/** Hand-written application code: a source extension, not a test, not generated or vendored. */
+function isTestFile(path) {
+    return !notAuthored(path) && !MAIN_SOURCE.test(path) && (TEST_DIRECTORY.test(path) || TEST_FILENAME.test(path));
+}
+/** Hand-written application code: a source extension, not a test, a build script, or generated or vendored. */
 function isSourceFile(path) {
-    return SOURCE_EXTENSIONS.test(path) && !NOT_AUTHORED.test(path) && !isTestFile(path);
+    return SOURCE_EXTENSIONS.test(path) && !BUILD_SCRIPT.test(path) && !notAuthored(path) && !isTestFile(path);
 }
 
 ;// CONCATENATED MODULE: ./src/checks/testDiscipline.ts
@@ -33324,8 +33337,8 @@ const COMPANY_NAME = 'Blore.AI';
 const PRODUCT_FULL_NAME = (/* unused pure expression or super */ null && (`${PRODUCT_NAME} by ${COMPANY_NAME}`));
 const TAGLINE = "Knit your team's AI habits into one practice.";
 const REPORT_TITLE = `${PRODUCT_NAME} — AI-Native Engineering Maturity Report`;
-/** Landing page; replace when the early-access page exists. */
-const CTA_URL = 'https://bloreai.com';
+/** The landing page's primary call to action: its contact form, prefilled for a free assessment. */
+const CTA_URL = 'https://bloreai.com/home/contact_us?topic=a+free+assessment';
 /** Public scoring rubric, in the public Action repository (knitwise-dev/assess). */
 const RUBRIC_URL = 'https://github.com/knitwise-dev/assess/blob/v0/docs/scoring-rubric.md';
 const CTA_TEXT = `## What's next
@@ -33672,7 +33685,7 @@ function directPushObservation(data) {
 }
 
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.2"};
+const package_namespaceObject = {"rE":"0.1.3"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */

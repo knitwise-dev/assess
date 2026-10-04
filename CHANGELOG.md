@@ -2,6 +2,15 @@
 
 All notable changes to the Knitwise Assess Action (`knitwise-dev/assess`). Versions follow [semantic versioning](https://semver.org); the major tag (`v0`) always points at the latest release in that series.
 
+## 0.1.3
+
+Correct scoring for Java, Kotlin, Android and Python teams, and point the report at the Knitwise landing page. Scored with **rubric v0.2.1**: scores may shift from 0.1.2 (rubric v0.2) for those stacks, so don't compare them directly; see "Changes" in `docs/scoring-rubric.md`.
+
+- **Call-to-action link:** the report's "Request early access" link now opens the Knitwise landing page's free-assessment form, https://bloreai.com/home/contact_us?topic=a+free+assessment, instead of the bloreai.com home page.
+- **Test-file detection across stacks:** test discipline now recognises Android `androidTest/` folders, `cypress/`, `playwright/` and `conftest.py` as tests; counts code under `src/main/` as source even in packages named `build`, `out`, `spec` or `test`; and no longer counts Gradle `*.gradle.kts` build scripts as source. The rubric now says what counts as a test file.
+- **Rubric 0.2.1:** a correction for that test-file and source-file classification. No criteria or thresholds changed, but scores may shift for Java, Kotlin, Android and Python repositories.
+- **Alignment with industry frameworks:** a new rubric section shows which parts of the DORA AI Capabilities Model (2025) and which OpenSSF Scorecard checks each area relates to. It doesn't change any score.
+
 ## 0.1.2
 
 Pilot feedback on 0.1.1. Still scored with **rubric v0.2**: scores are unchanged and comparable with 0.1.1.

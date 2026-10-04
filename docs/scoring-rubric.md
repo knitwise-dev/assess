@@ -1,6 +1,6 @@
 # Scoring rubric
 
-**Version 0.2.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
+**Version 0.2.1.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
 
 This document explains exactly how the Knitwise by Blore.AI Assess Action turns your repository's activity into scores. It is public so you can check our working (NFR-9). The numbers below live in one file in the code, `packages/assess/src/thresholds.ts`, and change only with a new rubric version.
 
@@ -83,6 +83,9 @@ When Claude Code is in use and `.claude/settings.json` is not committed, the per
 | −1 | AI-assisted PRs include tests at least **15** percentage points less often than other PRs. The gap is always reported as a finding when it can be computed. | It shows whether agents are held to the same bar as people. |
 
 The score is floored at 0 and capped at 5.
+
+**What counts as a test file:** files in a test folder (`test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`, `fixtures/`, `testdata/`, `androidTest/`, `cypress/`, `playwright/`, including Maven and Gradle `src/test/**`), and files named like tests: `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, `*_test.go`, `*Test.java`, `*Tests.java`, `*IT.java`, `*Test.kt`, `*_spec.rb`. Anything under `src/main/` is source, never a test, whatever its package or class name. Gradle build scripts (`*.gradle.kts`), generated output (`build/`, `out/`, `target/`, `dist/` outside a `src/` tree) and vendored code are neither.
+*Why:* Java, Android and Python teams lay out tests differently from JavaScript teams; a test helper or an instrumented test must count, and a build script must not look like untested code.
 
 ## Review depth (5 points)
 
@@ -189,6 +192,20 @@ Average the scores of the dimensions that have data, then map the average to a l
 If fewer than **4** of the 6 dimensions have data, the overall level is insufficient data.
 *Why:* a level built from two or three dimensions would overstate what we know.
 
+## Alignment with industry frameworks
+
+| Area | [DORA AI Capabilities Model (2025)](https://dora.dev/ai/capabilities-model/) | [OpenSSF Scorecard](https://scorecard.dev) checks |
+|---|---|---|
+| Agent configuration | Clear and communicated AI stance | — |
+| Test discipline | — | CI-Tests |
+| Review depth | Strong version control practices | Code-Review |
+| PR hygiene | Working in small batches | — |
+| Safety gates | Strong version control practices | Branch-Protection, CI-Tests; SAST and dependency checks (Vulnerabilities, Dependency-Update-Tool) for the secret-scanning and dependency criteria |
+| Adoption signal | Clear and communicated AI stance | — |
+| Direct-push observation (not scored) | Strong version control practices; Working in small batches | Branch-Protection, Code-Review |
+
+This rubric is informed by the [DORA AI Capabilities Model](https://dora.dev/ai/capabilities-model/) (capability names as in its [survey questions](https://dora.dev/ai/capabilities-model/questions/)) and the [OpenSSF Scorecard](https://github.com/ossf/scorecard) project, and each area relates to the parts shown; a Knitwise score is not a DORA or Scorecard result. The other four DORA AI capabilities (Healthy data ecosystems, AI-accessible internal data, User-centric focus and Quality internal platform) are organisation-level and can't be observed from a repository, so Knitwise doesn't score them.
+
 ## Changes
 
 **0.2** (Knitwise Assess 0.1.1), from 0.1:
@@ -200,3 +217,7 @@ If fewer than **4** of the 6 dimensions have data, the overall level is insuffic
 - **Top fixes:** each fix appears once.
 
 These change which criteria apply and how many points a repository can earn, so **scores from rubric 0.1 and 0.2 shouldn't be compared directly.** Re-run the Action to get a 0.2 baseline.
+
+**0.2.1** (Knitwise Assess 0.1.3), from 0.2. Correction: test-file and source-file classification; no criteria or thresholds changed; scores may shift for Java, Kotlin, Android and Python repos.
+
+- **Test-file detection:** Android `androidTest/` folders, `cypress/`, `playwright/` and `conftest.py` now count as tests. Code under `src/main/` always counts as source, even in a package named `build`, `out`, `target`, `spec`, `test` or `fixtures`. Gradle `*.gradle.kts` build scripts no longer count as source. Test discipline can change for Java, Kotlin, Android and Python repositories.
