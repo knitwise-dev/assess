@@ -17,7 +17,8 @@ jobs:
   assess:
     runs-on: ubuntu-latest
     steps:
-      - uses: knitwise-dev/assess@v0
+      # Replace the placeholder with the release's commit SHA (see below).
+      - uses: knitwise-dev/assess@<FULL-COMMIT-SHA-OF-v0.1.4> # v0.1.4
         with:
           lookback-days: 90
       # Optional: keeps report.md and score.json as a downloadable artifact.
@@ -29,6 +30,12 @@ jobs:
 ```
 
 The permissions are read-only. The Action can't change your code, settings, issues or pull requests.
+
+**Pin to a release (recommended).** Replace `<FULL-COMMIT-SHA-OF-v0.1.4>` with the 40-character commit SHA of the v0.1.4 tag. To get it, run `git ls-remote https://github.com/knitwise-dev/assess v0.1.4`, or open the [tags page](https://github.com/knitwise-dev/assess/tags). Keep the `# v0.1.4` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
+
+**Simpler: `@v0`.** Write `uses: knitwise-dev/assess@v0` instead, and every 0.x release is used automatically.
+
+Trade-off: a pinned SHA is reviewable and can't change under you; `@v0` gets fixes without a PR, but also changes without one.
 
 Commit the file to your default branch.
 

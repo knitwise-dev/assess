@@ -11,7 +11,7 @@ From the repository it runs in, through the GitHub API:
 - **Configuration files:** `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, PR templates, workflow files, `CODEOWNERS`, `.gitattributes`, the root `Makefile` or `pyproject.toml`, and build files up to 3 folders deep (`package.json`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, `Cargo.toml`; never inside `node_modules`). Script files (`*.sh`, `mvnw`, `gradlew`) are listed by path only, not read.
 - **Commits on the default branch** in the lookback window, the most recent 300 by default (up to 1000 with `max-commits`): only whether each one has a merged pull request. No commit IDs, messages or authors are requested; only the three counts are kept.
 - **Dependency changes:** for PRs that change a dependency manifest, the added package names.
-- **Repository settings:** the default branch, its protection rules and rulesets.
+- **Repository settings:** the default branch, whether the repository is private, its protection rules and rulesets. On a private repository, a 403 from the branch rules endpoint that asks you to upgrade your GitHub plan is read as "your plan doesn't enforce branch rules"; your plan itself is never read.
 - **History start:** whether the default branch has any commit older than the lookback window (the date of at most one commit, used only to word the "not enough PRs" note; nothing about it is kept).
 
 ## What does it never read or keep?

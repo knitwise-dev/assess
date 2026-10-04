@@ -1,6 +1,6 @@
 # Scoring rubric
 
-**Version 0.2.1.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
+**Version 0.2.2.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
 
 This document explains exactly how the Knitwise by Blore.AI Assess Action turns your repository's activity into scores. It is public so you can check our working (NFR-9). The numbers below live in one file in the code, `packages/assess/src/thresholds.ts`, and change only with a new rubric version.
 
@@ -128,6 +128,9 @@ With only classic branch protection, "requires reviews" is unknown, with the rea
 With fewer than **2** human contributors in the window (people who opened or reviewed a PR; bots excluded), "requires reviews" is not applicable, with the reason "Single maintainer: GitHub doesn't allow approving your own PR." With no human PRs in the window the team size is unknown, and the criterion is scored as usual. No login is ever shown.
 *Why:* a single maintainer can't approve their own PR, so requiring reviews would block every merge; CI and a self-review checklist are the gates they can use.
 
+On a private repository whose GitHub plan doesn't enforce branch rules (GitHub Free: rulesets and branch protection need GitHub Pro for a personal account or GitHub Team for an organization), "requires reviews" and "requires status checks" are not applicable, with the reason "Your GitHub plan doesn't enforce branch rules on private repositories (needs GitHub Pro for personal accounts, GitHub Team for organizations)." This takes precedence over the single-maintainer rule. Knitwise recognises it only when the repository is private and the branch rules endpoint answers 403 with a message about upgrading (it mentions "upgrade", "GitHub Pro" or "GitHub Team"). Any other 403 from that endpoint makes both criteria unknown, with the reason "Couldn't read branch rules (permission)". One fix replaces the review and check fixes: "Enforce PRs and passing checks: needs a paid GitHub plan (Pro for a personal account, Team for an organization)". Its second line is labelled "Until then:" and points to the direct-push observation for a team, or a self-review checklist for a single maintainer. The Safety gates details then say "Required reviews and required checks can't be enforced on this plan; the score covers the other gates.", and the overall level is at most 4 (see Overall level). `CODEOWNERS` is still scored on whether the file exists, and its evidence adds "On this plan, CODEOWNERS documents ownership but doesn't request reviews."
+*Why:* a team on GitHub Free can't turn these rules on without paying, and a ruleset they import is silently not enforced. Scoring 0 would read as neglect, and scoring them met would claim protection that isn't there.
+
 To have these settings read (classic required approvals, built-in secret scanning), pass the Action's optional `admin-token` input: a token with read access to repository administration only, used for those reads and nothing else.
 
 Whether secret scanning **push protection** is on is reported as a finding, not scored.
@@ -192,6 +195,9 @@ Average the scores of the dimensions that have data, then map the average to a l
 If fewer than **4** of the 6 dimensions have data, the overall level is insufficient data.
 *Why:* a level built from two or three dimensions would overstate what we know.
 
+If **the GitHub plan doesn't enforce branch rules** on a private repository (the same detection as in Safety gates), the overall level is **at most 4**, whether or not safety gates has a score. The report shows "Overall level capped at 4: your GitHub plan doesn't enforce branch rules on this private repository." under the level, only when the cap lowered it. Nothing else caps the level.
+*Why:* level 5 means the practice is enforced. Without required reviews and required checks, it can't be, however well the other gates and dimensions score.
+
 ## Alignment with industry frameworks
 
 | Area | [DORA AI Capabilities Model (2025)](https://dora.dev/ai/capabilities-model/) | [OpenSSF Scorecard](https://scorecard.dev) checks |
@@ -221,3 +227,8 @@ These change which criteria apply and how many points a repository can earn, so 
 **0.2.1** (Knitwise Assess 0.1.3), from 0.2. Correction: test-file and source-file classification; no criteria or thresholds changed; scores may shift for Java, Kotlin, Android and Python repos.
 
 - **Test-file detection:** Android `androidTest/` folders, `cypress/`, `playwright/` and `conftest.py` now count as tests. Code under `src/main/` always counts as source, even in a package named `build`, `out`, `target`, `spec`, `test` or `fixtures`. Gradle `*.gradle.kts` build scripts no longer count as source. Test discipline can change for Java, Kotlin, Android and Python repositories.
+
+**0.2.2** (Knitwise Assess 0.1.4), from 0.2.1. Correction for private repositories on GitHub Free; one new threshold (the level cap of 4), no existing thresholds changed.
+
+- **Plan-limited branch rules (safety gates):** Branch rules your GitHub plan doesn't enforce on private repositories are not applicable, not 0. Required reviews and required status checks drop out of the applicable points, so a private repository on GitHub Free is scored on secret scanning, dependency review and `CODEOWNERS` only. With fewer than 3 applicable points, safety gates has insufficient data.
+- **Overall level cap:** when this plan limit applies, the overall level is at most 4, whether or not safety gates has a score, with a note under the level when the cap lowers it. Level 5 means the practice is enforced.

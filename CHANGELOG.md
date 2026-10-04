@@ -2,6 +2,15 @@
 
 All notable changes to the Knitwise Assess Action (`knitwise-dev/assess`). Versions follow [semantic versioning](https://semver.org); the major tag (`v0`) always points at the latest release in that series.
 
+## 0.1.4
+
+Correct scoring for private repositories on GitHub Free, clearer fix wording, and a pinned install. Scored with **rubric v0.2.2**: scores for private repositories on GitHub Free change from 0.1.3 (rubric v0.2.1), so don't compare them directly; see "Changes" in `docs/scoring-rubric.md`.
+
+- **Private repositories on GitHub Free (rubric 0.2.2):** GitHub Free doesn't enforce rulesets or branch protection on private repositories. When a private repository's branch rules endpoint answers 403 asking you to upgrade, required reviews and required status checks are now not applicable instead of 0, and one fix explains that enforcing them needs GitHub Pro (personal account) or GitHub Team (organization). Any other 403 there makes both unknown, with the reason "Couldn't read branch rules (permission)". The `CODEOWNERS` evidence notes that on this plan it documents ownership but doesn't request reviews.
+- **Level cap:** on such a repository the overall level is capped at 4, whether or not safety gates has a score, with a note under the level when the cap lowers it: level 5 means the practice is enforced.
+- **Fix wording:** "Scan for committed secrets" now says "a secret scanner such as TruffleHog or gitleaks", and "Review new dependencies in CI" says "a dependency check such as GitHub's dependency review or OSV-Scanner", instead of naming one tool. The paid-plan fix's second line reads "Until then:".
+- **Install guide:** recommends pinning the Action to a release's commit SHA (`knitwise-dev/assess@<sha> # v0.1.4`), with how to find the SHA, and `@v0` as the simpler auto-updating alternative.
+
 ## 0.1.3
 
 Correct scoring for Java, Kotlin, Android and Python teams, and point the report at the Knitwise landing page. Scored with **rubric v0.2.1**: scores may shift from 0.1.2 (rubric v0.2) for those stacks, so don't compare them directly; see "Changes" in `docs/scoring-rubric.md`.

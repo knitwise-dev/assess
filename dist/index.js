@@ -31075,7 +31075,7 @@ const DIMENSIONS = [
     'adoption-signal',
 ];
 /** Version of docs/scoring-rubric.md the scores follow. Recorded in score.json. */
-const RUBRIC_VERSION = '0.2.1';
+const RUBRIC_VERSION = '0.2.2';
 function insufficientData(dimension, reason, criteria = []) {
     return { dimension, status: 'insufficient-data', reason, criteria };
 }
@@ -31196,6 +31196,8 @@ const OVERALL_LEVEL_BANDS = [
     { atLeast: -Infinity, points: 1 },
 ];
 const MIN_DIMENSIONS_FOR_OVERALL = 4;
+/** Highest level when safety gates has no data because the plan doesn't enforce branch rules on a private repo. */
+const PLAN_LIMITED_MAX_LEVEL = 4;
 // Report
 /** At most this many fixes are shown. */
 const TOP_FIXES = 3;
@@ -32306,6 +32308,17 @@ const safetyGates_LABELS = {
     dependencyAudit: 'A dependency review or audit step runs in CI',
     codeowners: 'A CODEOWNERS file exists',
 };
+/** Agreed reason when the repository is private and the plan doesn't enforce branch rules. */
+const PLAN_LIMIT = "Your GitHub plan doesn't enforce branch rules on private repositories (needs GitHub Pro for personal accounts, GitHub Team for organizations).";
+/** Shown in the Safety gates details whenever the plan limit applies. */
+const PLAN_LIMIT_DETAIL = "Required reviews and required checks can't be enforced on this plan; the score covers the other gates.";
+/** The plan doesn't enforce branch rules on this private repository (read from the criteria, so it works on any result). */
+function planLimitsBranchRules(dimension) {
+    return (dimension.dimension === 'safety-gates' &&
+        dimension.criteria.some((criterion) => criterion.id === 'safety-gates/requires-reviews' && criterion.status === 'not-applicable' && criterion.reason === PLAN_LIMIT));
+}
+/** Added to the CODEOWNERS evidence on such a plan. */
+const CODEOWNERS_PLAN_NOTE = "On this plan, CODEOWNERS documents ownership but doesn't request reviews.";
 /** Agreed report text when only classic protection applies and its review rule can't be read. */
 const CLASSIC_REVIEWS_UNREADABLE = "Reviews may be required via classic branch protection, which this token can't read.";
 /** Secret scanners, matched in workflow `uses:` references and `run:` scripts. */
@@ -32322,7 +32335,12 @@ function checkSafetyGates(data, detection = detectAiAssistance(data)) {
     const protection = data.config.branchProtection;
     // 1 and 2. Branch protection on the default branch. With a single maintainer,
     // required reviews are not applicable: GitHub won't let them approve their own PR.
-    if (isSingleMaintainer(data)) {
+    const planLimited = data.config.planLimitsBranchRules;
+    if (planLimited) {
+        // Never 0 for something the team can't turn on, and never met: nothing is enforced.
+        criteria.push(notAssessed(`${safetyGates_ID}/requires-reviews`, safetyGates_LABELS.requiresReviews, 'not-applicable', 1, PLAN_LIMIT));
+    }
+    else if (isSingleMaintainer(data)) {
         criteria.push(notAssessed(`${safetyGates_ID}/requires-reviews`, safetyGates_LABELS.requiresReviews, 'not-applicable', 1, SINGLE_MAINTAINER));
     }
     else if (!protection.available) {
@@ -32340,7 +32358,10 @@ function checkSafetyGates(data, detection = detectAiAssistance(data)) {
             finding('no-required-reviews', 'critical', `${branch} can be merged without any review.`);
         criteria.push(safetyGates_binary('requires-reviews', safetyGates_LABELS.requiresReviews, requiredApprovals > 0, approvals));
     }
-    if (!protection.available) {
+    if (planLimited) {
+        criteria.push(notAssessed(`${safetyGates_ID}/requires-status-checks`, safetyGates_LABELS.requiresChecks, 'not-applicable', 1, PLAN_LIMIT));
+    }
+    else if (!protection.available) {
         criteria.push(notAssessed(`${safetyGates_ID}/requires-status-checks`, safetyGates_LABELS.requiresChecks, 'unknown', 1, protection.reason));
     }
     else {
@@ -32384,8 +32405,9 @@ function checkSafetyGates(data, detection = detectAiAssistance(data)) {
         : `Whether secret scanning push protection is on is unknown: ${lowerFirst(push.reason)}`);
     // 5. CODEOWNERS.
     const owners = data.config.files.find((file) => CODEOWNERS.test(file.path) && file.content.trim() !== '');
-    evidence.push(owners ? `Code owners: ${owners.path}.` : 'No CODEOWNERS file.');
-    criteria.push(safetyGates_binary('codeowners', safetyGates_LABELS.codeowners, owners !== undefined, owners ? `Code owners: ${owners.path}.` : 'No CODEOWNERS file.'));
+    const ownersEvidence = [owners ? `Code owners: ${owners.path}.` : 'No CODEOWNERS file.', ...(planLimited ? [CODEOWNERS_PLAN_NOTE] : [])].join(' ');
+    evidence.push(ownersEvidence);
+    criteria.push(safetyGates_binary('codeowners', safetyGates_LABELS.codeowners, owners !== undefined, ownersEvidence));
     // Not scored: new dependencies in AI-assisted PRs, for manual review.
     const dependencyFinding = newDependenciesInAiPrs(data, detection);
     if (dependencyFinding)
@@ -32582,9 +32604,14 @@ function runChecks(data, options = {}) {
 
 
 
+
+// Overall level (docs/scoring-rubric.md, FR-A7).
+const PLAN_CAP_NOTE = `Overall level capped at ${PLAN_LIMITED_MAX_LEVEL}: your GitHub plan doesn't enforce branch rules on this private repository.`;
 /**
  * Average the scores of dimensions with data and map it to a level 1-5.
  * Fewer than MIN_DIMENSIONS_FOR_OVERALL dimensions with data gives insufficient-data.
+ * When the plan doesn't enforce branch rules on this private repo, the level is at most
+ * PLAN_LIMITED_MAX_LEVEL: level 5 means the practice is enforced.
  */
 function overallLevel(dimensions) {
     const scored = dimensions.filter(isScored);
@@ -32592,7 +32619,11 @@ function overallLevel(dimensions) {
     if (average === null || scored.length < MIN_DIMENSIONS_FOR_OVERALL) {
         return { level: 'insufficient-data', average, dimensionsWithData: scored.length };
     }
-    return { level: bandPoints(average, OVERALL_LEVEL_BANDS), average, dimensionsWithData: scored.length };
+    const level = bandPoints(average, OVERALL_LEVEL_BANDS);
+    if (level > PLAN_LIMITED_MAX_LEVEL && dimensions.some(planLimitsBranchRules)) {
+        return { level: PLAN_LIMITED_MAX_LEVEL, average, dimensionsWithData: scored.length, capNote: PLAN_CAP_NOTE };
+    }
+    return { level, average, dimensionsWithData: scored.length };
 }
 
 ;// CONCATENATED MODULE: ./src/collect/queries.ts
@@ -33086,12 +33117,16 @@ async function collectRepoConfig(client, repo, adminClient) {
         repo: repo.name,
     });
     const branch = info.default_branch;
+    const isPrivate = info.private === true;
     const paths = await listFiles(client, repo, branch);
+    const files = await readConfigFiles(client, repo, branch, selectConfigPaths(paths));
+    const { protection, planLimited } = await readBranchProtection(client, repo, branch, isPrivate, adminClient);
     return {
-        repository: { fullName: info.full_name, defaultBranch: branch },
+        repository: { fullName: info.full_name, defaultBranch: branch, private: isPrivate },
         config: {
-            files: await readConfigFiles(client, repo, branch, selectConfigPaths(paths)),
-            branchProtection: await readBranchProtection(client, repo, branch, adminClient),
+            files,
+            branchProtection: protection,
+            planLimitsBranchRules: planLimited,
             ...(await readSecretScanning(info, repo, adminClient)),
             claudeDirectoryPresent: paths.some(isClaudeDirectoryPath),
             scriptPaths: scriptPathsIn(paths),
@@ -33132,7 +33167,12 @@ async function readConfigFiles(client, repo, branch, paths) {
     }
     return files;
 }
-async function readBranchProtection(client, repo, branch, adminClient) {
+/** Reason when the rules endpoint refuses for any reason other than the plan. */
+const RULES_PERMISSION = "Couldn't read branch rules (permission)";
+/** GitHub's plan-gate message, e.g. "Upgrade to GitHub Pro or make this repository public…". */
+const PLAN_MESSAGE = /upgrade|github pro|github team/i;
+async function readBranchProtection(client, repo, branch, isPrivate, adminClient) {
+    const result = (protection, planLimited = false) => ({ protection, planLimited });
     let classic;
     try {
         classic = await client.rest('GET /repos/{owner}/{repo}/branches/{branch}', {
@@ -33142,11 +33182,13 @@ async function readBranchProtection(client, repo, branch, adminClient) {
         });
     }
     catch (error) {
-        return { available: false, reason: `Could not read the ${branch} branch (HTTP ${(0,collect_client/* httpStatus */.n)(error) ?? 'error'}).` };
+        return result({ available: false, reason: `Could not read the ${branch} branch (HTTP ${(0,collect_client/* httpStatus */.n)(error) ?? 'error'}).` });
     }
-    // Rulesets are readable with read access, but return 403 on plans without
-    // them (e.g. private repos on GitHub Free): treat that as no rulesets.
+    // Rules are readable with read access. A 403 on a private repository whose
+    // message names the plan means the plan doesn't enforce branch rules there
+    // (GitHub Free); any other 403 is a permission problem we can't see past.
     let rules = [];
+    let planLimited = false;
     try {
         rules = await client.rest('GET /repos/{owner}/{repo}/rules/branches/{branch}', {
             owner: repo.owner,
@@ -33156,8 +33198,16 @@ async function readBranchProtection(client, repo, branch, adminClient) {
         });
     }
     catch (error) {
-        if ((0,collect_client/* httpStatus */.n)(error) !== 403 && (0,collect_client/* httpStatus */.n)(error) !== 404)
+        const status = (0,collect_client/* httpStatus */.n)(error);
+        if (status === 403) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!isPrivate || !PLAN_MESSAGE.test(message))
+                return result({ available: false, reason: RULES_PERMISSION });
+            planLimited = true;
+        }
+        else if (status !== 404) {
             throw error;
+        }
     }
     const approvals = rules
         .filter((rule) => rule.type === 'pull_request')
@@ -33171,14 +33221,14 @@ async function readBranchProtection(client, repo, branch, adminClient) {
             .filter((rule) => rule.type === 'required_status_checks')
             .flatMap((rule) => rule.parameters?.required_status_checks?.map((check) => check.context) ?? []),
     ];
-    return {
+    return result({
         available: true,
         value: {
             protected: classic.protected || rules.length > 0,
             requiredApprovals: approvals.length > 0 ? Math.max(...approvals) : classic.protected ? null : 0,
             requiredStatusChecks: [...new Set(checks)].sort(),
         },
-    };
+    }, planLimited);
 }
 /**
  * Required approvals under classic protection. Needs repository administration
@@ -33356,6 +33406,7 @@ If you share anything with us, share score.json only. It contains scores and cou
 
 
 
+
 // Top fixes for the report (docs/scoring-rubric.md): unmet criteria ranked
 // critical first, then by the score points they would recover, then effort.
 const NO_FIXES = 'No priority fixes found.';
@@ -33451,12 +33502,12 @@ const CATALOG = {
     },
     'safety-gates/secret-scanning': {
         title: 'Scan for committed secrets',
-        enableChange: 'Adds a secret scanning workflow (gitleaks) on pull requests.',
+        enableChange: 'Adds a secret scanner such as TruffleHog or gitleaks on pull requests.',
         effort: 'M',
     },
     'safety-gates/dependency-audit': {
         title: 'Review new dependencies in CI',
-        enableChange: 'Adds the dependency review action on pull requests.',
+        enableChange: "Adds a dependency check such as GitHub's dependency review or OSV-Scanner on pull requests.",
         effort: 'M',
     },
     'safety-gates/codeowners': {
@@ -33519,7 +33570,11 @@ function isCritical(dimension, criterionId) {
  */
 function rankFixes(dimensions) {
     const fixes = [];
-    const soloFix = singleMaintainerFix(dimensions);
+    // A plan that doesn't enforce branch rules replaces the review, checks and single-maintainer fixes with one.
+    const planFix = planLimitFix(dimensions);
+    const soloFix = planFix ? undefined : singleMaintainerFix(dimensions);
+    if (planFix)
+        fixes.push(planFix);
     if (soloFix)
         fixes.push(soloFix);
     dimensions.forEach((dimension, order) => {
@@ -33585,6 +33640,29 @@ function mergeDuplicates(fixes) {
         });
     }
     return [...merged.values()];
+}
+const PLAN_FIX_TITLE = 'Enforce PRs and passing checks: needs a paid GitHub plan (Pro for a personal account, Team for an organization)';
+/** The one fix shown when the repository is private and its plan doesn't enforce branch rules. */
+function planLimitFix(dimensions) {
+    const order = dimensions.findIndex((dimension) => dimension.criteria.some((criterion) => criterion.id === 'safety-gates/requires-reviews' && criterion.reason === PLAN_LIMIT));
+    const dimension = dimensions[order];
+    if (!dimension)
+        return undefined;
+    const solo = dimensions.some((d) => d.criteria.some((criterion) => criterion.status === 'not-applicable' && criterion.reason === SINGLE_MAINTAINER));
+    return {
+        order,
+        fix: {
+            dimension: dimension.dimension,
+            criterionId: 'safety-gates/requires-reviews',
+            title: PLAN_FIX_TITLE,
+            why: PLAN_LIMIT,
+            nextStepLabel: 'Until then',
+            enableChange: solo ? 'use a self-review checklist in your PR template.' : "Knitwise's direct-push observation shows changes that bypass PRs.",
+            effort: 'S',
+            critical: true,
+            recoverable: 0,
+        },
+    };
 }
 /**
  * The one fix shown in place of review requirements when safety gates or
@@ -33685,7 +33763,7 @@ function directPushObservation(data) {
 }
 
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.3"};
+const package_namespaceObject = {"rE":"0.1.4"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */
@@ -33738,6 +33816,7 @@ function buildScoreFile(data, dimensions, overallLevel, generatedAt, actionVersi
 
 
 
+
 const STATUS_TEXT = {
     met: 'Met',
     partial: 'Partly met',
@@ -33756,6 +33835,7 @@ function buildReport(input) {
     const markdown = [
         `# ${REPORT_TITLE}`,
         summary,
+        ...(overall.capNote ? [`> ${overall.capNote}`] : []),
         '## Dimensions',
         dimensionsTable(dimensions),
         ...(observations.length ? ['## Observations', observations.join('\n\n')] : []),
@@ -33806,7 +33886,7 @@ function fixesSection(fixes, notes) {
             .map((fix, i) => [
             `${i + 1}. **${fix.title}**${fix.critical ? ' (critical)' : ''} · effort ${fix.effort} · ${DIMENSION_NAMES[fix.dimension]}`,
             `   - Why: ${escapeMarkdown(fix.why)}`,
-            `   - Setup PR: ${fix.enableChange}`,
+            `   - ${fix.nextStepLabel ?? 'Setup PR'}: ${fix.enableChange}`,
         ].join('\n'))
             .join('\n')
         : NO_FIXES;
@@ -33819,6 +33899,7 @@ function detailsSection(dimension, unreadable) {
         : `<strong>${name}</strong>: insufficient data`;
     const lines = [
         ...(isScored(dimension) ? [] : [`${escapeMarkdown(dimension.reason)}`, '']),
+        ...(planLimitsBranchRules(dimension) ? [PLAN_LIMIT_DETAIL, ''] : []),
         ...dimension.criteria.map(criterionLine),
     ];
     if (isScored(dimension) && dimension.findings.length) {
@@ -33910,6 +33991,8 @@ async function run(deps) {
         deps.setOutput('report-file', reportFile);
         deps.setOutput('score-file', scoreFilePath);
         deps.info(overall.level === 'insufficient-data' ? 'Overall level: insufficient data' : `Overall level: ${overall.level} of ${MAX_SCORE}`);
+        if (overall.capNote)
+            deps.info(overall.capNote);
         for (const dimension of dimensions) {
             const score = isScored(dimension) ? `${dimension.score}/${MAX_SCORE}` : 'insufficient data';
             deps.info(`${DIMENSION_NAMES[dimension.dimension]}: ${score}`);
