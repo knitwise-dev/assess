@@ -27,6 +27,8 @@ What the Knitwise by Blore.AI Assess Action (`knitwise-dev/assess`) can't do, or
 - **Reviews and checks outside GitHub's PR records.** Reviews done elsewhere (pairing, another review tool) don't count. Secret scanners and dependency checks are recognised by name in your workflows (for example TruffleHog, gitleaks, OSV-Scanner, GitHub's dependency review, `npm audit`); a custom scanner isn't recognised.
   *Workaround:* the report shows the evidence for each criterion; treat a "not met" for a tool it doesn't know as a false negative.
 - **Commands only in code.** Build, test and lint commands are read from inline code and code blocks in `CLAUDE.md` and `AGENTS.md`, not from prose. `.claude/settings.local.json` is personal and ignored.
+- **Agent files in other people's folders are ignored.** `CLAUDE.md`, `AGENTS.md` and `.claude/` files inside `examples/`, `fixtures/`, `testdata/`, `templates/`, `node_modules/`, `vendor/`, `dist/`, `build/` or `third_party/` folders don't count, so a real project folder with one of those names is skipped too.
+  *Workaround:* none for those names; use `exclude-paths` to ignore other folders.
 
 ## Data needs
 

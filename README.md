@@ -43,7 +43,7 @@ The upload step is optional: the report always appears in the run's job summary.
 | `admin-token` | unset | **Optional.** See below. |
 | `output-dir` | `ai-practice-report` | Where `report.md` and `score.json` are written, relative to the workspace. |
 | `show-cta` | `true` | Set to `false` to leave the "What's next" section out of the report. |
-| `exclude-paths` | unset | **Optional.** Comma-separated globs left out of changed-line counts, on top of lockfiles, generated files and test data (for example `docs/**,*.csv`). |
+| `exclude-paths` | unset | **Optional.** Comma-separated globs left out of changed-line counts, on top of lockfiles, generated files and test data, and agent files (`CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`) matching them are ignored (for example `docs/**,*.csv`). |
 
 ## Outputs
 

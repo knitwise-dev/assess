@@ -2,6 +2,13 @@
 
 All notable changes to the Knitwise Assess Action (`knitwise-dev/assess`). Versions follow [semantic versioning](https://semver.org); the major tag (`v0`) always points at the latest release in that series.
 
+## 0.1.6
+
+Fewer false fixes and no hidden ones. Scored with **rubric v0.2.3**: Agent configuration can rise for repositories that ship example or template agent files, so compare with 0.1.5 (rubric v0.2.2) scores carefully; see "Changes" in `docs/scoring-rubric.md`.
+
+- **Agent files in examples are ignored (rubric 0.2.3):** `CLAUDE.md`, `AGENTS.md` and `.claude/` files inside `examples/`, `fixtures/`, `testdata/`, `templates/` (and `node_modules/`, `vendor/`, `dist/`, `build/`, `third_party/`) folders, or matching `exclude-paths`, no longer count as the repository's agent setup. Their commands aren't checked against the repository, and they don't mean Claude Code is in use. Agent configuration can rise for repositories that ship example or template agent files.
+- **Fixes on GitHub Free private repositories:** when the plan limit leaves Safety gates without enough data to score, its unmet gates (for example no `CODEOWNERS`, no dependency check) still appear in the top fixes, ranked as usual. Before, they were hidden.
+
 ## 0.1.5
 
 Clearer about what the assessment can and can't do, and tidier wording for private repositories on GitHub Free. Scored with **rubric v0.2.2**, as in 0.1.4: wording only, no score changes, so 0.1.4 and 0.1.5 scores compare directly.

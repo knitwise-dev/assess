@@ -24,6 +24,7 @@ inputs:
     description: >-
       Optional. Comma-separated globs (for example "docs/**,*.csv") left out when
       counting changed lines, on top of lockfiles, generated files and test data.
+      Agent files (CLAUDE.md, AGENTS.md, .claude/settings.json) matching them are ignored too.
     required: false
   output-dir:
     description: >-

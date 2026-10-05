@@ -1,6 +1,6 @@
 # Scoring rubric
 
-**Version 0.2.2.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
+**Version 0.2.3.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
 
 This document explains exactly how the Knitwise by Blore.AI Assess Action turns your repository's activity into scores. It is public so you can check our working (NFR-9). The numbers below live in one file in the code, `packages/assess/src/thresholds.ts`, and change only with a new rubric version.
 
@@ -67,6 +67,9 @@ Detection is best-effort: an agent used without any of these signals is invisibl
 | +1 | Each agent in use has instructions it reads: `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex. If both files exist, they don't contradict each other on commands, or one names the other as the source of truth | Always | An agent with no instructions, or two files that disagree, gives inconsistent results. |
 | +1 | `.claude/settings.json` has permission rules and no broad allow-all: `Bash(*)`, a bare `Bash`, or `defaultMode` set to `bypassPermissions` | Claude Code in use | Broad permissions let an agent run anything without asking. |
 | +1 | Hooks are configured in `.claude/settings.json` | Claude Code in use | Hooks enforce the standard automatically, for example by running tests before the agent finishes. |
+
+**Which agent files count:** `CLAUDE.md`, `AGENTS.md` and `.claude/` files that describe this repository, at the root or in its own project folders. Files inside `examples/`, `fixtures/`, `testdata/`, `templates/`, `node_modules/`, `vendor/`, `dist/`, `build/` or `third_party/` folders, at any depth, and files matching the `exclude-paths` input are ignored: they describe something else (an example, a template, a dependency), so their commands aren't checked against this repository and they don't mean Claude Code is in use.
+*Why:* a repository that ships example agent files (an SDK, a template collection) would otherwise be marked down for commands that only exist in the examples.
 
 A repository with no config files scores a real 0, never insufficient data: the first three criteria always apply, so at least 3 points do.
 *Why:* a missing setup is exactly what this dimension measures.
@@ -169,7 +172,7 @@ Observations appear above Top fixes. **They never affect any score or the overal
 
 ## Top fixes
 
-The report lists up to **3** fixes, chosen from criteria that scored below their maximum in dimensions that have a score. Not-applicable and unknown criteria are never fixes, with one exception: for a single maintainer, "Require CI to pass before merging, and use a self-review checklist in your PR template" (effort S, critical) takes the place of required reviews (safety gates) and of the review-depth fix. It appears once, even when review depth has no score, and the separate required-status-checks fix is folded into it. They are ranked:
+The report lists up to **3** fixes, chosen from criteria that scored below their maximum in dimensions that have a score, and in Safety gates when the GitHub plan limit leaves it without enough data to score (its other gates can still be fixed; points recoverable are scaled by the gates that could be judged). Not-applicable and unknown criteria are never fixes, with one exception: for a single maintainer, "Require CI to pass before merging, and use a self-review checklist in your PR template" (effort S, critical) takes the place of required reviews (safety gates) and of the review-depth fix. It appears once, even when review depth has no score, and the separate required-status-checks fix is folded into it. They are ranked:
 
 1. **Critical first:** broad allow-all agent permissions; no required reviews or status checks on the default branch; AI-assisted PRs including tests at least 15 percentage points less often; no secret scanning of any kind.
 2. **Then by score points recoverable,** scaled like the dimension, so a point in a dimension with 3 applicable points counts more than one in a dimension with 5.
@@ -232,3 +235,8 @@ These change which criteria apply and how many points a repository can earn, so 
 
 - **Plan-limited branch rules (safety gates):** Branch rules your GitHub plan doesn't enforce on private repositories are not applicable, not 0. Required reviews and required status checks drop out of the applicable points, so a private repository on GitHub Free is scored on secret scanning, dependency review and `CODEOWNERS` only. With fewer than 3 applicable points, safety gates has insufficient data.
 - **Overall level cap:** when this plan limit applies, the overall level is at most 4, whether or not safety gates has a score, with a note under the level when the cap lowers it. Level 5 means the practice is enforced.
+
+**0.2.3** (Knitwise Assess 0.1.6), from 0.2.2. Correction: which agent files count; no thresholds changed.
+
+- **Agent configuration:** Agent files in examples, fixtures, test data and templates, or matching exclude-paths, are not this repository's setup. Their commands are no longer checked against the repository, and a `CLAUDE.md` or `.claude/` folder in such a place no longer means Claude Code is in use. Agent configuration can rise for repositories that ship example or template agent files.
+- **Top fixes:** when the plan limit leaves Safety gates without enough data to score, its unmet gates (for example no `CODEOWNERS`, no dependency check) still appear as fixes, ranked as usual. Fixes only; no score changes.

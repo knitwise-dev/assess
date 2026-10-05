@@ -31031,7 +31031,7 @@ __nccwpck_require__.a(module, async (__webpack_handle_async_dependencies__, __we
 /* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3597);
 /* harmony import */ var _actions_github__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(1738);
 /* harmony import */ var _collect_client_js__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(8935);
-/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(7406);
+/* harmony import */ var _main_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(5690);
 
 
 
@@ -31055,7 +31055,7 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 7406:
+/***/ 5690:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -31075,7 +31075,7 @@ const DIMENSIONS = [
     'adoption-signal',
 ];
 /** Version of docs/scoring-rubric.md the scores follow. Recorded in score.json. */
-const RUBRIC_VERSION = '0.2.2';
+const RUBRIC_VERSION = '0.2.3';
 function insufficientData(dimension, reason, criteria = []) {
     return { dimension, status: 'insufficient-data', reason, criteria };
 }
@@ -31843,6 +31843,74 @@ function capitalise(text) {
     return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+;// CONCATENATED MODULE: ./src/collect/configPaths.ts
+// Which repo files collect reads as configuration (FR-A4). No imports, so
+// scripts/record-fixtures.mjs can load this file directly.
+/** At most this many config files are read, shallowest first. */
+const MAX_CONFIG_FILES = 100;
+const IGNORED_DIRS = new Set(['node_modules', 'vendor', 'dist', 'build', '.git', 'third_party']);
+/** PR templates, in every location GitHub reads them from. */
+const PR_TEMPLATE_PATTERNS = [
+    /^(\.github\/|docs\/)?pull_request_template\.md$/i,
+    /^\.github\/PULL_REQUEST_TEMPLATE\/[^/]+\.md$/i,
+];
+function isPrTemplatePath(path) {
+    return PR_TEMPLATE_PATTERNS.some((pattern) => pattern.test(path));
+}
+const CONFIG_PATTERNS = [
+    // Agent instructions, at the root or in any subdirectory.
+    /(^|\/)(CLAUDE|AGENTS)\.md$/,
+    // Claude Code project settings (permissions, hooks). settings.local.json is
+    // personal and should not be committed; the rubric ignores it.
+    /(^|\/)\.claude\/settings\.json$/,
+    ...PR_TEMPLATE_PATTERNS,
+    // CI workflows.
+    /^\.github\/workflows\/[^/]+\.ya?ml$/,
+    // Code owners, in every location GitHub reads them from.
+    /^(\.github\/|docs\/)?CODEOWNERS$/,
+    // Marks generated files (linguist-generated), excluded from PR sizes.
+    /^\.gitattributes$/,
+    // Build files, to check the commands agent config names exist. Root Makefile and pyproject.toml;
+    // npm, Maven, Gradle, Go and Cargo files up to 3 folders deep (monorepos).
+    /^(Makefile|pyproject\.toml)$/,
+    /^([^/]+\/){0,3}(package\.json|pom\.xml|build\.gradle(\.kts)?|go\.mod|Cargo\.toml)$/,
+];
+function isConfigPath(path) {
+    if (path.split('/').some((segment) => IGNORED_DIRS.has(segment)))
+        return false;
+    return CONFIG_PATTERNS.some((pattern) => pattern.test(path));
+}
+const SCRIPT = /(^|\/)([^/]+\.sh|mvnw|gradlew)$/;
+const MAX_SCRIPT_DEPTH = 4; // path segments: up to 3 folders, then the file
+/** Runnable scripts up to 3 folders deep, outside ignored folders. */
+function scriptPathsIn(paths) {
+    return paths.filter((path) => SCRIPT.test(path) &&
+        path.split('/').length <= MAX_SCRIPT_DEPTH &&
+        !path.split('/').some((segment) => IGNORED_DIRS.has(segment)));
+}
+/**
+ * Folders whose agent files describe something other than this repository:
+ * examples, fixtures, test data, templates and dependencies (pilot bug: the
+ * Enable examples' CLAUDE.md files were scored as this repo's own).
+ */
+const OUT_OF_SCOPE_AGENT_DIRS = new Set([...IGNORED_DIRS, 'examples', 'fixtures', 'testdata', 'templates']);
+/** An agent file (CLAUDE.md, AGENTS.md, .claude/…) inside such a folder: not this repository's agent setup. */
+function isOutOfScopeAgentPath(path) {
+    return path.split('/').slice(0, -1).some((segment) => OUT_OF_SCOPE_AGENT_DIRS.has(segment));
+}
+/** A committed file in this repository's own .claude/ folder; personal settings.local.json does not count. */
+function isClaudeDirectoryPath(path) {
+    return /(^|\/)\.claude\//.test(path) && !path.endsWith('.claude/settings.local.json') && !isOutOfScopeAgentPath(path);
+}
+/** Matching paths, shallowest first, capped at MAX_CONFIG_FILES. */
+function selectConfigPaths(paths) {
+    const depth = (path) => path.split('/').length;
+    return paths
+        .filter(isConfigPath)
+        .sort((a, b) => depth(a) - depth(b) || a.localeCompare(b))
+        .slice(0, MAX_CONFIG_FILES);
+}
+
 ;// CONCATENATED MODULE: ./src/checks/lines.ts
 
 // Changed-line counts for review depth and PR hygiene (docs/scoring-rubric.md):
@@ -31920,62 +31988,21 @@ function globToRegExp(glob) {
     return new RegExp(anchored ? `^${body}$` : `(^|/)${body}$`);
 }
 
-;// CONCATENATED MODULE: ./src/collect/configPaths.ts
-// Which repo files collect reads as configuration (FR-A4). No imports, so
-// scripts/record-fixtures.mjs can load this file directly.
-/** At most this many config files are read, shallowest first. */
-const MAX_CONFIG_FILES = 100;
-const IGNORED_DIRS = new Set(['node_modules', 'vendor', 'dist', 'build', '.git', 'third_party']);
-/** PR templates, in every location GitHub reads them from. */
-const PR_TEMPLATE_PATTERNS = [
-    /^(\.github\/|docs\/)?pull_request_template\.md$/i,
-    /^\.github\/PULL_REQUEST_TEMPLATE\/[^/]+\.md$/i,
-];
-function isPrTemplatePath(path) {
-    return PR_TEMPLATE_PATTERNS.some((pattern) => pattern.test(path));
-}
-const CONFIG_PATTERNS = [
-    // Agent instructions, at the root or in any subdirectory.
-    /(^|\/)(CLAUDE|AGENTS)\.md$/,
-    // Claude Code project settings (permissions, hooks). settings.local.json is
-    // personal and should not be committed; the rubric ignores it.
-    /(^|\/)\.claude\/settings\.json$/,
-    ...PR_TEMPLATE_PATTERNS,
-    // CI workflows.
-    /^\.github\/workflows\/[^/]+\.ya?ml$/,
-    // Code owners, in every location GitHub reads them from.
-    /^(\.github\/|docs\/)?CODEOWNERS$/,
-    // Marks generated files (linguist-generated), excluded from PR sizes.
-    /^\.gitattributes$/,
-    // Build files, to check the commands agent config names exist. Root Makefile and pyproject.toml;
-    // npm, Maven, Gradle, Go and Cargo files up to 3 folders deep (monorepos).
-    /^(Makefile|pyproject\.toml)$/,
-    /^([^/]+\/){0,3}(package\.json|pom\.xml|build\.gradle(\.kts)?|go\.mod|Cargo\.toml)$/,
-];
-function isConfigPath(path) {
-    if (path.split('/').some((segment) => IGNORED_DIRS.has(segment)))
-        return false;
-    return CONFIG_PATTERNS.some((pattern) => pattern.test(path));
-}
-const SCRIPT = /(^|\/)([^/]+\.sh|mvnw|gradlew)$/;
-const MAX_SCRIPT_DEPTH = 4; // path segments: up to 3 folders, then the file
-/** Runnable scripts up to 3 folders deep, outside ignored folders. */
-function scriptPathsIn(paths) {
-    return paths.filter((path) => SCRIPT.test(path) &&
-        path.split('/').length <= MAX_SCRIPT_DEPTH &&
-        !path.split('/').some((segment) => IGNORED_DIRS.has(segment)));
-}
-/** A committed file in a .claude/ folder; personal settings.local.json does not count. */
-function isClaudeDirectoryPath(path) {
-    return /(^|\/)\.claude\//.test(path) && !path.endsWith('.claude/settings.local.json');
-}
-/** Matching paths, shallowest first, capped at MAX_CONFIG_FILES. */
-function selectConfigPaths(paths) {
-    const depth = (path) => path.split('/').length;
-    return paths
-        .filter(isConfigPath)
-        .sort((a, b) => depth(a) - depth(b) || a.localeCompare(b))
-        .slice(0, MAX_CONFIG_FILES);
+;// CONCATENATED MODULE: ./src/checks/agentFiles.ts
+
+
+// Which agent files describe this repository (docs/scoring-rubric.md, Agent configuration).
+const AGENT_FILE = /(^|\/)(CLAUDE|AGENTS)\.md$|(^|\/)\.claude\/settings\.json$/;
+/**
+ * The data with agent files that aren't this repository's own removed: those in
+ * examples, fixtures, test data, templates or dependencies, and any matching the
+ * exclude-paths input. Every other file is kept, so only agent checks change.
+ */
+function scopeAgentFiles(data, excludePaths = []) {
+    const excluded = excludePaths.map(globToRegExp);
+    const outOfScope = (path) => AGENT_FILE.test(path) && (isOutOfScopeAgentPath(path) || excluded.some((glob) => glob.test(path)));
+    const files = data.config.files.filter((file) => !outOfScope(file.path));
+    return files.length === data.config.files.length ? data : { ...data, config: { ...data.config, files } };
 }
 
 ;// CONCATENATED MODULE: ./src/stats.ts
@@ -32597,8 +32624,11 @@ const testDiscipline_percent = (share) => `${Math.round(share * PERCENT)}%`;
 
 
 
+
 /** All six dimensions, in report order (DIMENSIONS), sharing one AI detection pass. */
-function runChecks(data, options = {}) {
+function runChecks(collected, options = {}) {
+    // Agent files in examples, fixtures, templates or excluded paths aren't this repo's setup.
+    const data = scopeAgentFiles(collected, options.excludePaths);
     const detection = detectAiAssistance(data);
     const isGenerated = generatedFileTest(data.config.files, options.excludePaths);
     return [
@@ -33577,7 +33607,9 @@ function isCritical(dimension, criterionId) {
 }
 /**
  * Up to TOP_FIXES fixes from criteria scored below their maximum in scored
- * dimensions. Not-applicable and unknown criteria are never fixes.
+ * dimensions, and in Safety gates when the plan limit leaves it without enough
+ * data to score (its other gates still need fixing). Not-applicable and unknown
+ * criteria are never fixes.
  */
 function rankFixes(dimensions) {
     const fixes = [];
@@ -33589,7 +33621,8 @@ function rankFixes(dimensions) {
     if (soloFix)
         fixes.push(soloFix);
     dimensions.forEach((dimension, order) => {
-        if (!isScored(dimension))
+        const applicable = isScored(dimension) ? dimension.pointsApplicable : planLimitedApplicablePoints(dimension);
+        if (!applicable)
             return;
         const solo = soloFix !== undefined && dimension.dimension === 'safety-gates';
         for (const criterion of dimension.criteria) {
@@ -33611,7 +33644,7 @@ function rankFixes(dimensions) {
                     enableChange: entry.enableChange,
                     effort: entry.effort,
                     critical: isCritical(dimension, criterion.id),
-                    recoverable: (lost * MAX_SCORE) / dimension.pointsApplicable,
+                    recoverable: (lost * MAX_SCORE) / applicable,
                 },
             });
         }
@@ -33623,6 +33656,17 @@ function rankFixes(dimensions) {
         a.order - b.order)
         .slice(0, TOP_FIXES)
         .map(({ fix }) => fix);
+}
+/**
+ * Applicable points of a Safety gates result that has no score because the plan
+ * limits branch rules: the gates that could still be judged. 0 otherwise.
+ */
+function planLimitedApplicablePoints(dimension) {
+    if (isScored(dimension) || !planLimitsBranchRules(dimension))
+        return 0;
+    return dimension.criteria
+        .filter((criterion) => criterion.status === 'met' || criterion.status === 'partial' || criterion.status === 'not-met')
+        .reduce((sum, criterion) => sum + criterion.maxPoints, 0);
 }
 /**
  * One fix per title: criteria sharing a fix (or covered by another candidate,
@@ -33775,7 +33819,7 @@ function directPushObservation(data) {
 }
 
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.5"};
+const package_namespaceObject = {"rE":"0.1.6"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */

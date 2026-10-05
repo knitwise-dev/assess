@@ -19,8 +19,8 @@ jobs:
   assess:
     runs-on: ubuntu-latest
     steps:
-      # SHA: git ls-remote https://github.com/knitwise-dev/assess v0.1.5
-      - uses: knitwise-dev/assess@<commit SHA of the release> # v0.1.5
+      # SHA: git ls-remote https://github.com/knitwise-dev/assess v0.1.6
+      - uses: knitwise-dev/assess@<commit SHA of the release> # v0.1.6
         with:
           lookback-days: 90
       # Optional: keeps report.md and score.json as a downloadable artifact.
@@ -33,7 +33,7 @@ jobs:
 
 The permissions are read-only. The Action can't change your code, settings, issues or pull requests.
 
-**Pin to a release (recommended).** Replace `<commit SHA of the release>` with the release's 40-character commit SHA: `git ls-remote https://github.com/knitwise-dev/assess v0.1.5` prints it, and each release's notes on the [releases page](https://github.com/knitwise-dev/assess/releases) give the full pin line. Keep the `# v0.1.5` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
+**Pin to a release (recommended).** Replace `<commit SHA of the release>` with the release's 40-character commit SHA: `git ls-remote https://github.com/knitwise-dev/assess v0.1.6` prints it, and each release's notes on the [releases page](https://github.com/knitwise-dev/assess/releases) give the full pin line. Keep the `# v0.1.6` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
 
 **Simpler: `@v0`.** Write `uses: knitwise-dev/assess@v0` instead, and every 0.x release is used automatically.
 
@@ -77,7 +77,7 @@ Add any of these under `with:`.
 | `lookback-days` | How many days of merged PRs to look at. Default 90. If the report says there weren't enough PRs, use the larger value it suggests; if it says the window already covers the full history, a longer one won't help. |
 | `max-prs` | The most PRs to analyse. Default 300. |
 | `max-commits` | How many recent commits on the default branch to check for direct pushes. Default 300, at most 1000. A larger sample adds about 4 seconds per 25 commits on busy repositories. |
-| `exclude-paths` | Extra paths to leave out of PR size, comma-separated, for example `docs/**,*.csv`. Lockfiles, generated files and test data are already left out. |
+| `exclude-paths` | Extra paths to leave out of PR size, comma-separated, for example `docs/**,*.csv`. Lockfiles, generated files and test data are already left out. Agent files (`CLAUDE.md`, `AGENTS.md`) in these paths are ignored too; those in `examples/`, `fixtures/`, `testdata/` and `templates/` folders already are. |
 | `show-cta` | Set to `false` to leave the "What's next" offer out of the report. |
 | `admin-token` | Lets the Action read two settings the default token can't see. Not required. See [security-faq.md](security-faq.md). |
 
