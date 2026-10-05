@@ -43,6 +43,10 @@ Nothing else. It works with the run's default `GITHUB_TOKEN`.
 
 It is never required. GitHub hides two kinds of setting from the default token: the approvals required by classic branch protection, and whether built-in secret scanning and push protection are on. An `admin-token` with only *Administration: Read-only* access on the repository lets the Action read those two things, and nothing else. Without it, those criteria are marked unknown and left out of the score; they are never counted as 0.
 
+## What can't it see?
+
+It reads only GitHub, only the repository it runs in, and only merged pull requests and the default branch's configuration. It doesn't measure outcomes such as reverts, CI failure rates or code quality, and it isn't a security scanner. The full list, with workarounds: [limitations.md](../limitations.md).
+
 ## Does it rank or name developers?
 
 No. Reports aggregate to team and repository level, and nobody is named, ranked or scored. One exception: the report shows the repository name, so for a repository under a personal account (`your-account/repo`) it includes that account name.

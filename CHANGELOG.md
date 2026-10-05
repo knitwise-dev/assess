@@ -2,6 +2,15 @@
 
 All notable changes to the Knitwise Assess Action (`knitwise-dev/assess`). Versions follow [semantic versioning](https://semver.org); the major tag (`v0`) always points at the latest release in that series.
 
+## 0.1.5
+
+Clearer about what the assessment can and can't do, and tidier wording for private repositories on GitHub Free. Scored with **rubric v0.2.2**, as in 0.1.4: wording only, no score changes, so 0.1.4 and 0.1.5 scores compare directly.
+
+- **Shorter paid-plan fix title:** "Enforce PRs and passing checks (needs a paid GitHub plan)"; the plan details (Pro for a personal account, Team for an organization) stay in its "Why".
+- **Safety gates key evidence** on a private repository whose plan doesn't enforce branch rules now reads "N of M gates in place; branch rules not enforceable on this plan", counting the gates that could be judged. Wording only: rubric 0.2.2, no score changes.
+- **Limitations:** new `docs/limitations.md` lists what the assessment can't see or measure, with workarounds. Linked from the README, the install guide and the security FAQ.
+- **Install guide:** the pin placeholder reads `<commit SHA of the release>`, with the `git ls-remote` command beside it; each release's notes give the full pin line.
+
 ## 0.1.4
 
 Correct scoring for private repositories on GitHub Free, clearer fix wording, and a pinned install. Scored with **rubric v0.2.2**: scores for private repositories on GitHub Free change from 0.1.3 (rubric v0.2.1), so don't compare them directly; see "Changes" in `docs/scoring-rubric.md`.

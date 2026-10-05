@@ -32317,6 +32317,17 @@ function planLimitsBranchRules(dimension) {
     return (dimension.dimension === 'safety-gates' &&
         dimension.criteria.some((criterion) => criterion.id === 'safety-gates/requires-reviews' && criterion.status === 'not-applicable' && criterion.reason === PLAN_LIMIT));
 }
+/**
+ * Key evidence for Safety gates when the plan limits branch rules: how many of the
+ * gates that could be judged are in place ("3 of 3 gates in place; …").
+ */
+function planLimitedKeyEvidence(dimension) {
+    if (!planLimitsBranchRules(dimension))
+        return undefined;
+    const judged = dimension.criteria.filter((c) => c.maxPoints > 0 && (c.status === 'met' || c.status === 'partial' || c.status === 'not-met'));
+    const inPlace = judged.filter((c) => c.status === 'met').length;
+    return `${inPlace} of ${judged.length} gates in place; branch rules not enforceable on this plan`;
+}
 /** Added to the CODEOWNERS evidence on such a plan. */
 const CODEOWNERS_PLAN_NOTE = "On this plan, CODEOWNERS documents ownership but doesn't request reviews.";
 /** Agreed report text when only classic protection applies and its review rule can't be read. */
@@ -33641,7 +33652,8 @@ function mergeDuplicates(fixes) {
     }
     return [...merged.values()];
 }
-const PLAN_FIX_TITLE = 'Enforce PRs and passing checks: needs a paid GitHub plan (Pro for a personal account, Team for an organization)';
+/** The plan details (Pro for a personal account, Team for an organization) are in "Why" (PLAN_LIMIT). */
+const PLAN_FIX_TITLE = 'Enforce PRs and passing checks (needs a paid GitHub plan)';
 /** The one fix shown when the repository is private and its plan doesn't enforce branch rules. */
 function planLimitFix(dimensions) {
     const order = dimensions.findIndex((dimension) => dimension.criteria.some((criterion) => criterion.id === 'safety-gates/requires-reviews' && criterion.reason === PLAN_LIMIT));
@@ -33763,7 +33775,7 @@ function directPushObservation(data) {
 }
 
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.4"};
+const package_namespaceObject = {"rE":"0.1.5"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */
@@ -33870,7 +33882,7 @@ function summaryLine(data, overall, generatedAt) {
 function dimensionsTable(dimensions) {
     const rows = dimensions.map((dimension) => {
         const score = isScored(dimension) ? `${dimension.score}/${MAX_SCORE}` : 'Insufficient data';
-        const key = isScored(dimension) ? (dimension.evidence[0] ?? '') : shortReason(dimension);
+        const key = planLimitedKeyEvidence(dimension) ?? (isScored(dimension) ? (dimension.evidence[0] ?? '') : shortReason(dimension));
         return `| ${DIMENSION_NAMES[dimension.dimension]} | ${score} | ${escapeMarkdown(key)} |`;
     });
     return ['| Dimension | Score | Key evidence |', '|---|---|---|', ...rows].join('\n');

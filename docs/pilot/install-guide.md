@@ -2,6 +2,8 @@
 
 Installing the Knitwise by Blore.AI assessment, for the engineering lead. Takes under 5 minutes. You need permission to add a workflow file to the repository.
 
+Before you start, [limitations.md](../limitations.md) lists what the assessment can't see or measure, and what to do about it. For example, a repository with fewer than 10 merged pull requests in the window gets "insufficient data" for most areas.
+
 ## 1. Add the workflow
 
 Create `.github/workflows/ai-practice-assessment.yml` with:
@@ -17,8 +19,8 @@ jobs:
   assess:
     runs-on: ubuntu-latest
     steps:
-      # Replace the placeholder with the release's commit SHA (see below).
-      - uses: knitwise-dev/assess@<FULL-COMMIT-SHA-OF-v0.1.4> # v0.1.4
+      # SHA: git ls-remote https://github.com/knitwise-dev/assess v0.1.5
+      - uses: knitwise-dev/assess@<commit SHA of the release> # v0.1.5
         with:
           lookback-days: 90
       # Optional: keeps report.md and score.json as a downloadable artifact.
@@ -31,7 +33,7 @@ jobs:
 
 The permissions are read-only. The Action can't change your code, settings, issues or pull requests.
 
-**Pin to a release (recommended).** Replace `<FULL-COMMIT-SHA-OF-v0.1.4>` with the 40-character commit SHA of the v0.1.4 tag. To get it, run `git ls-remote https://github.com/knitwise-dev/assess v0.1.4`, or open the [tags page](https://github.com/knitwise-dev/assess/tags). Keep the `# v0.1.4` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
+**Pin to a release (recommended).** Replace `<commit SHA of the release>` with the release's 40-character commit SHA: `git ls-remote https://github.com/knitwise-dev/assess v0.1.5` prints it, and each release's notes on the [releases page](https://github.com/knitwise-dev/assess/releases) give the full pin line. Keep the `# v0.1.5` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
 
 **Simpler: `@v0`.** Write `uses: knitwise-dev/assess@v0` instead, and every 0.x release is used automatically.
 

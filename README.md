@@ -65,6 +65,7 @@ For the person approving this Action:
 - **No individuals.** Reports aggregate to team and repository level. No one is named, ranked or scored. The report shows the repository name. For repos under a personal account, this includes your account name.
 - **`score.json`** holds scores, points and criterion statuses only, plus unscored commit counts (total, via PRs, pushed directly). It is the only file we would ever ask you to share.
 - **Best-effort AI detection.** AI-assisted PRs are detected from co-author trailers, agent branch names, agent bots, labels and PR descriptions. Agent use that leaves none of these is not detected, and the report says so.
+- **Limitations.** What it can't see or measure (for example, changes that skip pull requests, agents other than Claude Code and Codex, small repositories), and the workarounds: [`docs/limitations.md`](docs/limitations.md).
 
 ## Optional: `admin-token`
 
