@@ -31075,7 +31075,7 @@ const DIMENSIONS = [
     'adoption-signal',
 ];
 /** Version of docs/scoring-rubric.md the scores follow. Recorded in score.json. */
-const RUBRIC_VERSION = '0.2.3';
+const RUBRIC_VERSION = '0.2.4';
 function insufficientData(dimension, reason, criteria = []) {
     return { dimension, status: 'insufficient-data', reason, criteria };
 }
@@ -32494,19 +32494,21 @@ const VENDORED = /(^|\/)(node_modules|vendor|third_party)\//;
  */
 const BUILD_OUTPUT = /^(?:(?!src\/)[^/]+\/)*(dist|build|out|target|coverage|\.next)\//;
 const GENERATED_FILE = /\.min\.js$|\.d\.ts$/;
+/** Repository tooling at the root: CI scripts, agent hooks and git hooks, not application code. */
+const REPO_TOOLING = /^(\.github|\.claude|\.githooks|\.husky)\//;
 /** Maven, Gradle and Android main source sets: never tests, whatever their package or class names. */
 const MAIN_SOURCE = /(^|\/)src\/main\//;
 const TEST_DIRECTORY = /(^|\/)(tests?|__tests__|spec|specs|e2e|integration-tests?|testdata|fixtures|androidTest|cypress|playwright)\//i;
-const TEST_FILENAME = /(\.|_)(test|spec)\.[^/]+$|(^|\/)test_[^/]+\.py$|(^|\/)conftest\.py$|_test\.(go|py|exs?)$|(Test|Tests|Spec|IT)\.(java|kt|scala|cs|swift)$|_spec\.rb$/;
-function notAuthored(path) {
-    return VENDORED.test(path) || BUILD_OUTPUT.test(path) || GENERATED_FILE.test(path);
+const TEST_FILENAME = /(\.|_)(test|spec)\.[^/]+$|(^|\/)test_[^/]+\.py$|(^|\/)conftest\.py$|_test\.(go|py|exs?)$|(Test|Tests|Spec|IT)\.(java|kt|scala|cs|swift)$|_spec\.rb$|(^|\/)test[-_][^/]+\.sh$|-test\.sh$|\.bats$/;
+function notApplicationCode(path) {
+    return VENDORED.test(path) || BUILD_OUTPUT.test(path) || GENERATED_FILE.test(path) || REPO_TOOLING.test(path);
 }
 function isTestFile(path) {
-    return !notAuthored(path) && !MAIN_SOURCE.test(path) && (TEST_DIRECTORY.test(path) || TEST_FILENAME.test(path));
+    return !notApplicationCode(path) && !MAIN_SOURCE.test(path) && (TEST_DIRECTORY.test(path) || TEST_FILENAME.test(path));
 }
-/** Hand-written application code: a source extension, not a test, a build script, or generated or vendored. */
+/** Hand-written application code: a source extension, not a test, a build script, repository tooling, or generated or vendored. */
 function isSourceFile(path) {
-    return SOURCE_EXTENSIONS.test(path) && !BUILD_SCRIPT.test(path) && !notAuthored(path) && !isTestFile(path);
+    return SOURCE_EXTENSIONS.test(path) && !BUILD_SCRIPT.test(path) && !notApplicationCode(path) && !isTestFile(path);
 }
 
 ;// CONCATENATED MODULE: ./src/checks/testDiscipline.ts
@@ -33819,7 +33821,7 @@ function directPushObservation(data) {
 }
 
 ;// CONCATENATED MODULE: ./package.json
-const package_namespaceObject = {"rE":"0.1.6"};
+const package_namespaceObject = {"rE":"0.1.7"};
 ;// CONCATENATED MODULE: ./src/version.ts
 
 /** Version of the Assess Action, from packages/assess/package.json; recorded in score.json and the report footer. */

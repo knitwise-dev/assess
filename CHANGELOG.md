@@ -2,6 +2,13 @@
 
 All notable changes to the Knitwise Assess Action (`knitwise-dev/assess`). Versions follow [semantic versioning](https://semver.org); the major tag (`v0`) always points at the latest release in that series.
 
+## 0.1.7
+
+More accurate test discipline for repositories with CI scripts, agent hooks or shell tests. Scored with **rubric v0.2.4**: test discipline can rise for repositories that keep scripts in `.github/`, `.claude/`, `.githooks/` or `.husky/`, so compare with 0.1.6 (rubric v0.2.3) scores carefully; see "Changes" in `docs/scoring-rubric.md`.
+
+- **Repository tooling is not application source (rubric 0.2.4):** scripts under `.github/`, `.claude/`, `.githooks/` and `.husky/` at the repository root (CI scripts, agent hooks, git hooks) no longer count as source, so a PR that changes only them is no longer a source change without tests. Before, a team's own setup files (for example a Claude Code test hook or a CI helper script) lowered its test discipline.
+- **Shell tests count as tests:** `test-*.sh`, `test_*.sh`, `*-test.sh` and `*.bats`.
+
 ## 0.1.6
 
 Fewer false fixes and no hidden ones. Scored with **rubric v0.2.3**: Agent configuration can rise for repositories that ship example or template agent files, so compare with 0.1.5 (rubric v0.2.2) scores carefully; see "Changes" in `docs/scoring-rubric.md`.

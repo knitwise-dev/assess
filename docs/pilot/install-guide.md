@@ -19,8 +19,8 @@ jobs:
   assess:
     runs-on: ubuntu-latest
     steps:
-      # SHA: git ls-remote https://github.com/knitwise-dev/assess v0.1.6
-      - uses: knitwise-dev/assess@<commit SHA of the release> # v0.1.6
+      # SHA: git ls-remote https://github.com/knitwise-dev/assess v0.1.7
+      - uses: knitwise-dev/assess@<commit SHA of the release> # v0.1.7
         with:
           lookback-days: 90
       # Optional: keeps report.md and score.json as a downloadable artifact.
@@ -33,7 +33,7 @@ jobs:
 
 The permissions are read-only. The Action can't change your code, settings, issues or pull requests.
 
-**Pin to a release (recommended).** Replace `<commit SHA of the release>` with the release's 40-character commit SHA: `git ls-remote https://github.com/knitwise-dev/assess v0.1.6` prints it, and each release's notes on the [releases page](https://github.com/knitwise-dev/assess/releases) give the full pin line. Keep the `# v0.1.6` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
+**Pin to a release (recommended).** Replace `<commit SHA of the release>` with the release's 40-character commit SHA: `git ls-remote https://github.com/knitwise-dev/assess v0.1.7` prints it, and each release's notes on the [releases page](https://github.com/knitwise-dev/assess/releases) give the full pin line. Keep the `# v0.1.7` comment, so reviewers and Dependabot (`github-actions` ecosystem) can tell which release it is and propose updates.
 
 **Simpler: `@v0`.** Write `uses: knitwise-dev/assess@v0` instead, and every 0.x release is used automatically.
 

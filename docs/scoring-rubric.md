@@ -1,6 +1,6 @@
 # Scoring rubric
 
-**Version 0.2.3.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
+**Version 0.2.4.** Every `score.json` records the rubric version it was scored with (`rubricVersion`), so scores from different versions are never compared by mistake.
 
 This document explains exactly how the Knitwise by Blore.AI Assess Action turns your repository's activity into scores. It is public so you can check our working (NFR-9). The numbers below live in one file in the code, `packages/assess/src/thresholds.ts`, and change only with a new rubric version.
 
@@ -87,8 +87,8 @@ When Claude Code is in use and `.claude/settings.json` is not committed, the per
 
 The score is floored at 0 and capped at 5.
 
-**What counts as a test file:** files in a test folder (`test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`, `fixtures/`, `testdata/`, `androidTest/`, `cypress/`, `playwright/`, including Maven and Gradle `src/test/**`), and files named like tests: `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, `*_test.go`, `*Test.java`, `*Tests.java`, `*IT.java`, `*Test.kt`, `*_spec.rb`. Anything under `src/main/` is source, never a test, whatever its package or class name. Gradle build scripts (`*.gradle.kts`), generated output (`build/`, `out/`, `target/`, `dist/` outside a `src/` tree) and vendored code are neither.
-*Why:* Java, Android and Python teams lay out tests differently from JavaScript teams; a test helper or an instrumented test must count, and a build script must not look like untested code.
+**What counts as a test file:** files in a test folder (`test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`, `fixtures/`, `testdata/`, `androidTest/`, `cypress/`, `playwright/`, including Maven and Gradle `src/test/**`), and files named like tests: `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, `*_test.go`, `*Test.java`, `*Tests.java`, `*IT.java`, `*Test.kt`, `*_spec.rb`, and shell tests: `test-*.sh`, `test_*.sh`, `*-test.sh`, `*.bats`. Anything under `src/main/` is source, never a test, whatever its package or class name. Gradle build scripts (`*.gradle.kts`), generated output (`build/`, `out/`, `target/`, `dist/` outside a `src/` tree) vendored code and repository tooling at the root (`.github/`, `.claude/`, `.githooks/`, `.husky/`: CI scripts, agent hooks and git hooks) are neither.
+*Why:* Java, Android and Python teams lay out tests differently from JavaScript teams; a test helper or an instrumented test must count, and a build script or a CI or hook script must not look like untested application code.
 
 ## Review depth (5 points)
 
@@ -240,3 +240,8 @@ These change which criteria apply and how many points a repository can earn, so 
 
 - **Agent configuration:** Agent files in examples, fixtures, test data and templates, or matching exclude-paths, are not this repository's setup. Their commands are no longer checked against the repository, and a `CLAUDE.md` or `.claude/` folder in such a place no longer means Claude Code is in use. Agent configuration can rise for repositories that ship example or template agent files.
 - **Top fixes:** when the plan limit leaves Safety gates without enough data to score, its unmet gates (for example no `CODEOWNERS`, no dependency check) still appear as fixes, ranked as usual. Fixes only; no score changes.
+
+**0.2.4** (Knitwise Assess 0.1.7), from 0.2.3. Correction: source-file and test-file classification; no criteria or thresholds changed.
+
+- **Repository tooling:** scripts under `.github/`, `.claude/`, `.githooks/` and `.husky/` at the repository root (CI scripts, agent hooks, git hooks) are no longer application source, so a PR that changes only them no longer counts as a source change without tests. Test discipline can rise for repositories that keep scripts there, including those set up by Knitwise.
+- **Shell tests:** `test-*.sh`, `test_*.sh`, `*-test.sh` and `*.bats` count as tests, not source.
